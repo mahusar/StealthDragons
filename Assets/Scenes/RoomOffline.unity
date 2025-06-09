@@ -3471,7 +3471,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c60398b6a515ce3459535024f9417f43, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  versionUrl: http://185.203.216.201/stealthdragons/version.txt
+  versionUrl: 
   currentVersion: 0.3a
   statusText: {fileID: 1421311806}
   versionText: {fileID: 1271787030}
