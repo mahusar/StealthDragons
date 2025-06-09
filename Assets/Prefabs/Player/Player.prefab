@@ -1,0 +1,198 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &2970783521937405540
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2970783521937405536}
+  - component: {fileID: 2970783521937405537}
+  - component: {fileID: 2970783521937405538}
+  - component: {fileID: 2970783521937405539}
+  - component: {fileID: 1537437544569787812}
+  - component: {fileID: 2142132494022829688}
+  m_Layer: 8
+  m_Name: Player
+  m_TagString: Player
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &2970783521937405536
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2970783521937405540}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_RootOrder: 0
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &2970783521937405537
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2970783521937405540}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9b91ecbcc199f4492b9a91e820070131, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  clientStarted: 0
+  sceneId: 0
+  _assetId: 3788520016
+  serverOnly: 0
+  visible: 0
+  hasSpawned: 0
+--- !u!114 &2970783521937405538
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2970783521937405540}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e8406b0f543746547993e9122fc716e0, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  syncDirection: 0
+  syncMode: 0
+  syncInterval: 0.1
+  combat: {fileID: 1537437544569787812}
+  owner: {fileID: 0}
+  health: 30
+  strength: 0
+  casterType: 0
+  arrow: {fileID: 2597109300211673482, guid: 19dd902ed02c17c48aa2b226959adad7, type: 3}
+  spawnOffset: {fileID: 0}
+  isTargeting: 0
+  arrowObject: {fileID: 0}
+  isTargetable: 1
+  waitTurn: 1
+  taunt: 0
+  username: 
+  portrait: {fileID: 21300000, guid: 3d6e4a88f1af3b34191c1c94e62e3530, type: 3}
+  deck: {fileID: 2970783521937405539}
+  cardback: {fileID: 21300000, guid: b5774c7599bea8d4bb97b2a775285444, type: 3}
+  tauntCount: 0
+  maxMana: 10
+  currentMax: 0
+  _mana: 0
+  hasEnemy: 0
+  enemyInfo:
+    player: {fileID: 0}
+  firstPlayer: 0
+--- !u!114 &2970783521937405539
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2970783521937405540}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 226cc30213fe1e7458a0c3e5d8754af9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  syncDirection: 0
+  syncMode: 0
+  syncInterval: 0.1
+  player: {fileID: 2970783521937405538}
+  deckSize: 0
+  handSize: 7
+  startingDeck:
+  - card: {fileID: 11400000, guid: ce27ae6b0656c4d48a646cbb43458cda, type: 2}
+    amount: 2
+  - card: {fileID: 11400000, guid: ed3d5391410892a448e16d4d72270cea, type: 2}
+    amount: 2
+  - card: {fileID: 11400000, guid: d611b6dc488d47144be2f5a5b723ee50, type: 2}
+    amount: 2
+  - card: {fileID: 11400000, guid: bb5d76108a9d6944a968d682d55cb63f, type: 2}
+    amount: 2
+  - card: {fileID: 11400000, guid: 8ec01c1a6eddc8141b9d75b9b76e1630, type: 2}
+    amount: 2
+  - card: {fileID: 11400000, guid: ab942332dcbee4740bf522e5676e1723, type: 2}
+    amount: 2
+  - card: {fileID: 11400000, guid: 38dd8053433a74d4cb8053283af3d65a, type: 2}
+    amount: 2
+  - card: {fileID: 11400000, guid: 9f2720ec160350941b596a79f06e41b2, type: 2}
+    amount: 2
+  - card: {fileID: 11400000, guid: 4090b240967dcf845af80855a877d3de, type: 2}
+    amount: 2
+  - card: {fileID: 11400000, guid: bacbdd2b9e86ce64dbfd0716e0b78c3d, type: 2}
+    amount: 2
+  - card: {fileID: 11400000, guid: c0819c13da0548e4e8f27cca32b8b951, type: 2}
+    amount: 2
+  - card: {fileID: 11400000, guid: 28d40842629ffb143ba9d5e0a11432e1, type: 2}
+    amount: 2
+  - card: {fileID: 11400000, guid: 19070889db0ef5d49af6d245ec04c4d4, type: 2}
+    amount: 2
+  - card: {fileID: 11400000, guid: 850526d7ecf8fba4e91cff71095a36e1, type: 2}
+    amount: 2
+  - card: {fileID: 11400000, guid: 65c907076bdfe9b43808d98e810892c9, type: 2}
+    amount: 2
+  - card: {fileID: 11400000, guid: 141a299fc509890449a29826340b97ea, type: 2}
+    amount: 2
+  - card: {fileID: 11400000, guid: f919591cc7025d74b9861fb1d28aafe8, type: 2}
+    amount: 2
+  - card: {fileID: 11400000, guid: dc2b46945f4b4e848863ca777be4e831, type: 2}
+    amount: 2
+  - card: {fileID: 11400000, guid: 07d6bba50508bd64482b823294de58e0, type: 2}
+    amount: 2
+  - card: {fileID: 11400000, guid: 7a6ec5442c1021646b047fb211473235, type: 2}
+    amount: 2
+  spawnInitialCards: 1
+  enemyHandCount: 0
+--- !u!114 &1537437544569787812
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2970783521937405540}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: caf836e9c3b0b7a41be2abaa154f0ee9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  syncDirection: 0
+  syncMode: 0
+  syncInterval: 0.1
+  entity: {fileID: 2970783521937405538}
+--- !u!61 &2142132494022829688
+BoxCollider2D:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2970783521937405540}
+  m_Enabled: 1
+  m_Density: 1
+  m_Material: {fileID: 0}
+  m_IsTrigger: 1
+  m_UsedByEffector: 0
+  m_UsedByComposite: 0
+  m_Offset: {x: 0, y: 0.1}
+  m_SpriteTilingProperty:
+    border: {x: 0, y: 0, z: 0, w: 0}
+    pivot: {x: 0, y: 0}
+    oldSize: {x: 0, y: 0}
+    newSize: {x: 0, y: 0}
+    adaptiveTilingThreshold: 0
+    drawMode: 0
+    adaptiveTiling: 0
+  m_AutoTiling: 0
+  serializedVersion: 2
+  m_Size: {x: 1, y: 1.2}
+  m_EdgeRadius: 0
