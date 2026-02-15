@@ -18,4 +18,4 @@ The cards are NFT node artworks, drawn randomly, and every player has the same n
 
 ![Alt text](Assets/Sprites/StealthDragons_03a.png)
 
-Donation XST address: S6BMAeJhxuf8CZXBBVZxmr4YFhhg9AZ1dz
+https://www.youtube.com/watch?v=gPVLkC-fBXw
