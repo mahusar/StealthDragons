@@ -94,11 +94,7 @@ public class RoomUIManager : MonoBehaviour
 
     public void UpdatePlayerList()
     {
-        if (playerListText == null || manager == null)
-        {
-            Debug.LogWarning("Player list text or manager is null.");
-            return;
-        }
+        if (playerListText == null || manager == null) return;
 
         string playerList = "Players:\n";
         if (manager.roomSlots == null || manager.roomSlots.Count == 0)
@@ -107,12 +103,12 @@ public class RoomUIManager : MonoBehaviour
         }
         else
         {
-            foreach (var player in manager.roomSlots)
+            foreach (var slot in manager.roomSlots)
             {
-                var roomPlayer = player as DragonRoomPlayer;
+                var roomPlayer = slot as DragonRoomPlayer;
                 if (roomPlayer != null)
                 {
-                    playerList += $"Player {roomPlayer.index + 1}: {(roomPlayer.readyToBegin ? "Ready" : "Not Ready")}\n";
+                    playerList += $"{roomPlayer.username}: {(roomPlayer.readyToBegin ? "Ready" : "Not Ready")}\n";
                 }
             }
         }

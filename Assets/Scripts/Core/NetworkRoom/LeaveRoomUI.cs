@@ -7,7 +7,7 @@ public class LeaveRoomUI : MonoBehaviour
 {
     public Button leaveButton; // Assign in Inspector for RoomOnline and DragonMatch scenes
     private XSTDragonNetworkManager manager;
-    private RoomListUI roomListUI; // Reference to RoomListUI for refreshing
+  //  private RoomListUI roomListUI; // Reference to RoomListUI for refreshing
 
     void Awake()
     {
@@ -27,7 +27,7 @@ public class LeaveRoomUI : MonoBehaviour
         }
 
         // Find RoomListUI in the offline scene (optional, if already loaded)
-        roomListUI = FindObjectOfType<RoomListUI>();
+     //   roomListUI = FindObjectOfType<RoomListUI>();
     }
 
     void Start()
@@ -71,21 +71,21 @@ public class LeaveRoomUI : MonoBehaviour
         }
 
         // Load offline scene and refresh room list
-        SceneManager.sceneLoaded += OnOfflineSceneLoaded;
+    //    SceneManager.sceneLoaded += OnOfflineSceneLoaded;
         SceneManager.LoadScene("RoomOffline");
     }
-
+/*
     private void OnOfflineSceneLoaded(Scene scene, LoadSceneMode mode)
     {
         if (scene.name == "RoomOffline")
-        {
+       // {
             // Find RoomListUI in the offline scene
-            roomListUI = FindObjectOfType<RoomListUI>();
-            if (roomListUI != null)
-            {
-                roomListUI.RefreshRoomList();
-                Debug.Log("Room list refreshed after returning to offline scene.");
-            }
+       //     roomListUI = FindObjectOfType<RoomListUI>();
+       //     if (roomListUI != null)
+       //     {
+       //         roomListUI.RefreshRoomList();
+       //         Debug.Log("Room list refreshed after returning to offline scene.");
+       //     }
             else
             {
                 Debug.LogWarning("RoomListUI not found in offline scene.");
@@ -93,5 +93,5 @@ public class LeaveRoomUI : MonoBehaviour
         }
         // Unsubscribe to avoid multiple calls
         SceneManager.sceneLoaded -= OnOfflineSceneLoaded;
-    }
+    }*/
 }

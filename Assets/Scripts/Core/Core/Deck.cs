@@ -1,5 +1,6 @@
 ﻿using UnityEngine;
 using Mirror;
+using System.Collections;
 
 public class Deck : NetworkBehaviour
 {
@@ -21,13 +22,35 @@ public class Deck : NetworkBehaviour
 
     void OnEnemyHandCountChanged(int oldCount, int newCount)
     {
-        if (!isClient || player == null || !player.hasEnemy || Player.gameManager == null || Player.gameManager.enemyHand == null)
+        if (!isClient || Player.localPlayer == null || Player.gameManager == null || Player.gameManager.enemyHand == null)
+            return;
+
+        if (!Player.localPlayer.hasEnemy)
         {
-            Debug.LogWarning($"OnEnemyHandCountChanged: Skipped. isClient: {isClient}, player: {(player != null)}, hasEnemy: {(player != null ? player.hasEnemy : false)}, gameManager: {(Player.gameManager != null)}, enemyHand: {(Player.gameManager != null ? Player.gameManager.enemyHand != null : false)}");
+            StartCoroutine(WaitForEnemyThenUpdate());
             return;
         }
 
         Player.gameManager.enemyHand.UpdateHandCards();
+    }
+
+    private IEnumerator WaitForEnemyThenUpdate()
+    {
+        // Wait for local player to exist first
+        while (Player.localPlayer == null)
+            yield return null;
+
+        // Wait for enemy to be found by local player
+        while (!Player.localPlayer.hasEnemy)
+        {
+            Player.localPlayer.UpdateEnemyInfo();
+            yield return new WaitForSeconds(0.5f);
+        }
+
+        Debug.Log("WaitForEnemyThenUpdate: Enemy found, updating hand.");
+
+        if (Player.gameManager?.enemyHand != null)
+            Player.gameManager.enemyHand.UpdateHandCards();
     }
     public override void OnStartServer()
     {

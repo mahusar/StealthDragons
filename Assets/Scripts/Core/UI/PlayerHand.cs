@@ -18,14 +18,10 @@ public class PlayerHand : MonoBehaviour
     }
     IEnumerator DelayedStart()
     {
-        // Wait until the player and deck are fully ready
         while (Player.localPlayer == null || Player.localPlayer.deck == null)
             yield return null;
 
         player = Player.localPlayer;
-
-        // Wait a bit more just to be sure hand is synced
-        yield return new WaitForSeconds(1f); 
 
         if (playerType == PlayerType.PLAYER && player.deck.spawnInitialCards)
         {
@@ -33,10 +29,16 @@ public class PlayerHand : MonoBehaviour
             player.deck.spawnInitialCards = false;
         }
 
-        if (player && player.hasEnemy) enemyInfo = player.enemyInfo;
-
-        if (IsEnemyHand())
+        // Wait until enemy is actually found, not just 1 second
+        if (playerType == PlayerType.ENEMY)
         {
+            while (!player.hasEnemy)
+            {
+                player.UpdateEnemyInfo();
+                yield return new WaitForSeconds(0.5f);
+            }
+
+            enemyInfo = player.enemyInfo;
             UIUtils.BalancePrefabs(cardPrefab.gameObject, enemyInfo.handCount, handContent);
             for (int i = 0; i < enemyInfo.handCount; ++i)
             {
@@ -44,6 +46,10 @@ public class PlayerHand : MonoBehaviour
                 slot.AddCardBack();
                 cardCount = enemyInfo.handCount;
             }
+        }
+        else
+        {
+            if (player.hasEnemy) enemyInfo = player.enemyInfo;
         }
     }
 
