@@ -1,4 +1,5 @@
 ﻿using Mirror;
+using System.Collections;
 using System.IO;
 using System.Net.Sockets;
 using System.Text;
@@ -104,8 +105,6 @@ public class XSTDragonNetworkManager : NetworkRoomManager
         WriteStatus();
         UpdateTransportPort();
         Debug.Log($"Server started on {networkAddress}:{networkPort}");
-        NetworkServer.RegisterHandler<DepositAddressRequest.RequestDepositAddressMessage>(
-            OnDepositAddressRequestReceived);
     }
 
     public override void OnRoomServerSceneChanged(string sceneName)
@@ -113,61 +112,39 @@ public class XSTDragonNetworkManager : NetworkRoomManager
         base.OnRoomServerSceneChanged(sceneName);
         Debug.Log($"Server scene changed to: {sceneName}");
 
-        if (sceneName == "RoomOnline")
+        if (sceneName == RoomScene)
         {
-            var bridge = FindObjectOfType<GameServerWalletBridge>();
-            if (bridge != null)
-            {
-                if (!bridge.gameObject.activeSelf)
-                {
-                    Debug.LogWarning("GameServerWalletBridge disabled in RoomOnline — enabling.");
-                    bridge.gameObject.SetActive(true);
-                }
-                DontDestroyOnLoad(bridge.gameObject);
-            }
-            else
-            {
-                Debug.LogError("GameServerWalletBridge not found — creating new instance.");
-                GameObject bridgeObj = new GameObject("GameServerWalletBridge");
-                bridgeObj.AddComponent<NetworkIdentity>().serverOnly = true;
-                bridgeObj.AddComponent<GameServerWalletBridge>();
-                NetworkServer.Spawn(bridgeObj);
-                DontDestroyOnLoad(bridgeObj);
-            }
-
             var managers = FindObjectsOfType<NetworkManager>();
             if (managers.Length > 1)
             {
-                Debug.LogError($"Multiple NetworkManagers detected ({managers.Length}). Keeping singleton.");
                 for (int i = 1; i < managers.Length; i++)
                     Destroy(managers[i].gameObject);
             }
         }
+        else if (sceneName == GameplayScene)
+        {
+            // Wait for all clients to finish loading before initializing match
+            StartCoroutine(WaitForPlayersReadyThenInitWallet());
+        }
     }
 
-    void OnDepositAddressRequestReceived(NetworkConnectionToClient conn,
-        DepositAddressRequest.RequestDepositAddressMessage msg)
+    private IEnumerator WaitForPlayersReadyThenInitWallet()
     {
-        Debug.Log($"Server: deposit address request from client {conn.connectionId}");
-        if (GameServerWalletBridge.Instance != null)
-        {
-            if (GameServerWalletBridge.Instance.gameObject.activeSelf)
-            {
-                GameServerWalletBridge.Instance.ForwardDepositAddressRequest(conn);
-            }
-            else
-            {
-                Debug.LogError("GameServerWalletBridge is disabled!");
-                conn.Send(new DepositAddressRequest.NewDepositAddressMessage
-                { DepositAddress = "Error: Wallet bridge disabled" });
-            }
-        }
+        Debug.Log("[DragonatorWallet] Waiting for players to load scene...");
+
+        // Wait until at least 1 connection has loaded the game scene
+        yield return new WaitForSeconds(2f);
+
+        var players = new System.Collections.Generic.List<NetworkConnectionToClient>(
+            NetworkServer.connections.Values);
+
+        Debug.Log($"[DragonatorWallet] Initializing match with {players.Count} players.");
+
+        DragonatorWallet wallet = FindFirstObjectByType<DragonatorWallet>();
+        if (wallet != null)
+            wallet.InitializeMatch(players);
         else
-        {
-            Debug.LogError("GameServerWalletBridge instance not found!");
-            conn.Send(new DepositAddressRequest.NewDepositAddressMessage
-            { DepositAddress = "Error: Wallet bridge not available" });
-        }
+            Debug.LogError("[DragonatorWallet] Not found in DragonMatch scene!");
     }
 
     public override void OnRoomServerPlayersReady()
@@ -200,10 +177,6 @@ public class XSTDragonNetworkManager : NetworkRoomManager
         base.OnStopServer();
         Debug.Log("Server stopped.");
         SceneManager.LoadScene("RoomOffline");
-
-        var bridge = FindObjectOfType<GameServerWalletBridge>();
-        if (bridge != null)
-            DontDestroyOnLoad(bridge.gameObject);
     }
 
     // ── Client callbacks ──────────────────────────────────────────────────────
@@ -219,7 +192,7 @@ public class XSTDragonNetworkManager : NetworkRoomManager
         base.OnClientDisconnect();
         Debug.Log("Client disconnected.");
 
-        DisconnectUI disconnectUI = FindObjectOfType<DisconnectUI>();
+        DisconnectUI disconnectUI = FindFirstObjectByType<DisconnectUI>();
         if (disconnectUI != null)
             disconnectUI.ShowDisconnectMessage("Player Disconnected");
         else

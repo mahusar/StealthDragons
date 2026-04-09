@@ -70,7 +70,6 @@ public class Player : Entity
 
     private IEnumerator StartGameAfterDelay()
     {
-        // Wait for an enemy to connect
         Debug.Log($"Player {username}: Waiting for enemy to connect...");
         while (!hasEnemy)
         {
@@ -78,10 +77,20 @@ public class Player : Entity
             yield return new WaitForSeconds(1f);
         }
 
-        Debug.Log($"Player {username}: Enemy found, waiting 3 seconds to start game...");
-        yield return new WaitForSeconds(3f);
+        Debug.Log($"Player {username}: Enemy found, waiting for bet validation...");
 
-        Debug.Log($"Player {username}: Commanding game start...");
+        // Wait for wallet to validate both players
+        DragonatorWallet wallet = FindFirstObjectByType<DragonatorWallet>();
+        if (wallet == null)
+        {
+            Debug.LogError($"Player {username}: DragonatorWallet not found!");
+            yield break;
+        }
+
+        while (!wallet.BothPlayersValidated())
+            yield return new WaitForSeconds(1f);
+
+        Debug.Log($"Player {username}: Bets validated, starting game...");
         CmdStartGame();
     }
 

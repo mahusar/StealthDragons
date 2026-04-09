@@ -6,36 +6,34 @@ using TMPro;
 
 public class OutcomeUI : MonoBehaviour
 {
-    public TMP_Text statusText; // Reference to Text component
-    public GameObject statusBackgroundObject; // Reference to StatusBackground GameObject
+    [Header("Main Panel")]
+    [SerializeField] private GameObject outcomePanel; 
+
+    [Header("Outcome")]
+    [SerializeField] private TMP_Text statusText;
+
+    [Header("Winner TXID")]
+    [SerializeField] private GameObject txidPanel;
+    [SerializeField] private TMP_InputField txidInputField;
+    [SerializeField] private Button copyTxidButton;
+
     public GameManager gameManager;
 
     void Start()
     {
         if (gameManager == null)
-            gameManager = FindObjectOfType<GameManager>();
+            gameManager = FindFirstObjectByType<GameManager>();
 
-        if (statusText != null)
-        {
-            statusText.enabled = false; // Disable text at start
-            statusText.text = "";
-        }
-        if (statusBackgroundObject != null)
-        {
-            statusBackgroundObject.SetActive(false); // Disable background at start
-        }
+        outcomePanel.SetActive(false); 
+        txidPanel.SetActive(false);
 
-        // Start coroutine to wait for Player.localPlayer
         StartCoroutine(InitializeOutcomeDisplay());
     }
 
     private IEnumerator InitializeOutcomeDisplay()
     {
-        // Wait until Player.localPlayer is set
         while (Player.localPlayer == null)
-        {
             yield return null;
-        }
 
         UpdateOutcomeDisplay();
     }
@@ -44,29 +42,44 @@ public class OutcomeUI : MonoBehaviour
     {
         if (gameManager == null || statusText == null || Player.localPlayer == null)
         {
+            Debug.LogWarning("[OutcomeUI] Missing reference.");
             return;
         }
 
-        // Find the most recent outcome for the local player
         var localPlayerOutcome = gameManager.gameOutcomes
             .Where(o => o.netId == Player.localPlayer.netIdentity.netId)
-            .OrderByDescending(o => gameManager.gameOutcomes.IndexOf(o)) // Most recent first
+            .OrderByDescending(o => gameManager.gameOutcomes.IndexOf(o))
             .FirstOrDefault();
 
         if (localPlayerOutcome.username != null)
         {
+            outcomePanel.SetActive(true); 
             statusText.text = localPlayerOutcome.isWinner ? "Victory" : "Defeat";
-            statusText.enabled = true;
             statusText.color = localPlayerOutcome.isWinner ? Color.green : Color.red;
-            if (statusBackgroundObject != null)
-                statusBackgroundObject.SetActive(true);
         }
         else
         {
-            statusText.text = "";
-            statusText.enabled = false;
-            if (statusBackgroundObject != null)
-                statusBackgroundObject.SetActive(false);
+            outcomePanel.SetActive(false);
         }
+    }
+
+    public void ShowWinnerTxid(string txid)
+    {
+        txidPanel.SetActive(true);
+        txidInputField.text = txid;
+        txidInputField.readOnly = true;
+        copyTxidButton.onClick.AddListener(() =>
+        {
+            GUIUtility.systemCopyBuffer = txid;
+            StartCoroutine(CopyTxidFeedback());
+        });
+    }
+
+    private IEnumerator CopyTxidFeedback()
+    {
+        string original = copyTxidButton.GetComponentInChildren<TMP_Text>().text;
+        copyTxidButton.GetComponentInChildren<TMP_Text>().text = "Copied!";
+        yield return new WaitForSeconds(1.5f);
+        copyTxidButton.GetComponentInChildren<TMP_Text>().text = original;
     }
 }

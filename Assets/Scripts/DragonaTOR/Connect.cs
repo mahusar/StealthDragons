@@ -16,7 +16,7 @@ public class Connect : MonoBehaviour
     [SerializeField] private Button joinButton;
     [SerializeField] private TMP_Text statusText;
     [SerializeField] private TMP_Text playersText;
-    private const string gameVersion = "0.4";  // GAME VERSION
+    private const string gameVersion = "0.5";  // GAME VERSION
     [SerializeField] private TMP_Text versionText;
     [SerializeField] private TMP_Text versionNumberText;
 

@@ -34,7 +34,7 @@ public class MatchmakerServer : MonoBehaviour
     private bool isRunning;
     public int matchmakerPort = 5555;
 
-    private const string GameVersion = "0.4";   // GAME VERSION
+    private const string GameVersion = "0.5";   // GAME VERSION
 
     void Start()
     {

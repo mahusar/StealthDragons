@@ -62,7 +62,7 @@ public class GameManager : NetworkBehaviour
     {
         gameOutcomes = outcomes;
         Debug.Log($"GameManager: Synced {gameOutcomes.Count} game outcomes on client.");
-        OutcomeUI outcomeUI = FindObjectOfType<OutcomeUI>();
+        OutcomeUI outcomeUI = FindAnyObjectByType<OutcomeUI>();
         if (outcomeUI != null)
         {
             outcomeUI.UpdateOutcomeDisplay();
@@ -79,7 +79,7 @@ public class GameManager : NetworkBehaviour
     [ClientRpc]
     private void RpcShowDisconnectMessage(string message)
     {
-        DisconnectUI disconnectUI = FindObjectOfType<DisconnectUI>();
+        DisconnectUI disconnectUI = FindAnyObjectByType<DisconnectUI>();
         if (disconnectUI != null)
         {
             disconnectUI.ShowDisconnectMessage(message);
@@ -91,8 +91,17 @@ public class GameManager : NetworkBehaviour
         }
     }
 
+    [Server]
     public void StartGameForPlayer(NetworkIdentity firstPlayerIdentity)
     {
+        // Guard: don't start unless bets are validated
+        DragonatorWallet wallet = FindAnyObjectByType<DragonatorWallet>();
+        if (wallet == null || !wallet.BothPlayersValidated())
+        {
+            Debug.LogWarning("GameManager: Cannot start — bets not validated yet.");
+            return;
+        }
+
         Debug.Log("GameManager: StartGameForPlayer called on server.");
         turnCount = 1;
         RpcStartGame(firstPlayerIdentity);

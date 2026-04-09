@@ -64,28 +64,54 @@ public class Combat : NetworkBehaviour
             else if (entity is Player player)
             {
                 Debug.Log($"CmdChangeHealth: Player {player.username} defeated!");
-                GameManager gameManager = FindObjectOfType<GameManager>();
+                GameManager gameManager = FindFirstObjectByType<GameManager>();
+                DragonatorWallet wallet = FindFirstObjectByType<DragonatorWallet>();
+
                 if (gameManager != null)
                 {
-                    gameManager.RecordGameOutcome(player, false); // Record loser
-                    Player[] onlinePlayers = FindObjectsOfType<Player>();
+                    gameManager.RecordGameOutcome(player, false);
+
+                    Player[] onlinePlayers = FindObjectsByType<Player>(FindObjectsSortMode.None);
                     foreach (Player p in onlinePlayers)
                     {
                         if (p != player && p.health > 0)
                         {
-                            gameManager.RecordGameOutcome(p, true); // Record winner
+                            gameManager.RecordGameOutcome(p, true);
+
+                            // Pay winner before destroying anything
+                            if (wallet != null)
+                            {
+                                // Find winner's connection
+                                foreach (var conn in NetworkServer.connections.Values)
+                                {
+                                    Player connPlayer = conn.identity?.GetComponent<Player>();
+                                    if (connPlayer == p)
+                                    {
+                                        wallet.PayWinner(conn);
+                                        Debug.Log($"[DragonatorWallet] PayWinner called for {p.username}");
+                                        break;
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                Debug.LogError("[DragonatorWallet] Wallet not found, cannot pay winner!");
+                            }
                             break;
                         }
                     }
                 }
-                NetworkServer.Destroy(entity.gameObject);
-            }
-            else
-            {
-                Debug.Log($"Destroying non-FieldCard entity: {entity.gameObject.name}");
-                NetworkServer.Destroy(entity.gameObject);
+
+                // Delay destruction so coroutines referencing this object can finish cleanly
+                StartCoroutine(DestroyPlayerAfterDelay(entity.gameObject));
             }
         }
+    }
+    private IEnumerator DestroyPlayerAfterDelay(GameObject playerObj)
+    {
+        yield return new WaitForSeconds(0.5f);
+        if (playerObj != null)
+            NetworkServer.Destroy(playerObj);
     }
 
     // Existing methods (CmdChangeMana, CmdChangeStrength, etc.) remain unchanged
