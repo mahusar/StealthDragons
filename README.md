@@ -42,6 +42,8 @@ The cards are NFT node artworks, drawn randomly, and every player has the same n
 - HiddenServicePort 5555 127.0.0.1:5555
 - sudo systemctl restart tor
 ##### Add into StealthCoin.conf 
+- cd ~/.StealthCoin
+- nano StealthCoin.conf
 - rpcbind=127.0.0.1
 - rpcallowip=127.0.0.1
 ##### Create rpc.config 
