@@ -20,7 +20,8 @@ The cards are NFT node artworks, drawn randomly, and every player has the same n
 ##### Windows
 - Install Tor standalone via [Expert Bundle](https://www.torproject.org/download/tor/)
 - Add torrc config file: SocksPort 9050 | ControlPort 9051 | DataDirectory tor_data | HiddenServiceDir C:\Tor\hidden\ | HiddenServiceVersion 3 | HiddenServicePort 7777 127.0.0.1:7777
-- Run .\tor.exe -f torrc
+- cd C:\Tor\Tor
+- .\tor.exe -f torrc
 - Launch StealthDragons.exe
 - Set Player name (default is StealthDragon)
 - Enter the Dragonator Server .onion address, connect to begin
@@ -32,9 +33,6 @@ The cards are NFT node artworks, drawn randomly, and every player has the same n
 - sudo apt install tor
 - sudo systemctl start tor
 - sudo systemctl status tor
-##### Check ports 
-- ss -tlnp | grep 7780   # game port
-- ss -tlnp | grep 5555   # matchmaker port
 ##### Find Address
 - sudo cat /var/lib/tor/hidden_service/hostname
 ##### Add at the bottom
@@ -55,6 +53,9 @@ The cards are NFT node artworks, drawn randomly, and every player has the same n
 ##### Start Dragonator
 - chmod +x dragonator.x86_64
 - ./dragonator.x86_64 -batchmode -nographics
+##### Check ports 
+- ss -tlnp | grep 7780   # game port
+- ss -tlnp | grep 5555   # matchmaker port
 
 ### Development Environment
 - Unity Engine 6000.0.71f1
