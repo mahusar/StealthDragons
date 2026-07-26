@@ -1,4 +1,4 @@
-﻿using Mirror;
+using Mirror;
 using System.Collections;
 using System.IO;
 using System.Net.Sockets;
@@ -51,8 +51,6 @@ public class XSTDragonNetworkManager : NetworkRoomManager
         }
     }
 
-    // ── Port helpers ──────────────────────────────────────────────────────────
-
     public void UpdateTransportPort()
     {
         if (Transport.active is TelepathyTransport telepathy)
@@ -94,8 +92,6 @@ public class XSTDragonNetworkManager : NetworkRoomManager
         }
     }
 
-    // ── Server callbacks ──────────────────────────────────────────────────────
-
     public override void OnStartServer()
     {
         base.OnStartServer();
@@ -123,7 +119,6 @@ public class XSTDragonNetworkManager : NetworkRoomManager
         }
         else if (sceneName == GameplayScene)
         {
-            // Wait for all clients to finish loading before initializing match
             StartCoroutine(WaitForPlayersReadyThenInitWallet());
         }
     }
@@ -132,7 +127,6 @@ public class XSTDragonNetworkManager : NetworkRoomManager
     {
         Debug.Log("[DragonatorWallet] Waiting for players to load scene...");
 
-        // Wait until at least 1 connection has loaded the game scene
         yield return new WaitForSeconds(2f);
 
         var players = new System.Collections.Generic.List<NetworkConnectionToClient>(
@@ -164,6 +158,9 @@ public class XSTDragonNetworkManager : NetworkRoomManager
 
     public override void OnServerDisconnect(NetworkConnectionToClient conn)
     {
+        if (DragonatorWallet.Instance != null)
+            DragonatorWallet.Instance.NotifyPlayerDisconnected(conn);
+
         base.OnServerDisconnect(conn);
         connectedPlayers = Mathf.Max(0, connectedPlayers - 1);
         WriteStatus();
@@ -178,8 +175,6 @@ public class XSTDragonNetworkManager : NetworkRoomManager
         Debug.Log("Server stopped.");
         SceneManager.LoadScene("RoomOffline");
     }
-
-    // ── Client callbacks ──────────────────────────────────────────────────────
 
     public override void OnClientConnect()
     {
@@ -201,8 +196,6 @@ public class XSTDragonNetworkManager : NetworkRoomManager
         if (!NetworkServer.active)
             SceneManager.LoadScene("RoomOffline");
     }
-
-    // ── Matchmaker communication (TCP) ────────────────────────────────────────
 
     public void SendToMatchmaker(string message)
     {

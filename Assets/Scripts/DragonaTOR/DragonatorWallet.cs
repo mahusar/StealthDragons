@@ -1,45 +1,152 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
+using System.Globalization;
 using System.Threading.Tasks;
 using Core;
 using Mirror;
-using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using UnityEngine;
 
 public class DragonatorWallet : NetworkBehaviour
 {
     public static DragonatorWallet Instance;
 
-    [SyncVar(hook = nameof(OnPlayer1StatusChanged))]
-    private string player1Status = "";
-    [SyncVar(hook = nameof(OnPlayer2StatusChanged))]
-    private string player2Status = "";
+    [Header("Stake")]
+    [Tooltip("Stake per player in XST. Parsed as decimal — money must never round-trip through float.")]
+    [SerializeField] private string betAmountXst = "0.01";
 
-    [Header("Match Settings")]
-    public float betAmount = 0.01f; // fixed bet in XST
+    [Header("Funding phase")]
+    [Tooltip("Confirmations required before a deposit counts. XST blocks are ~5s, so 3 is ~15s.")]
+    [SerializeField] private int requiredConfirmations = 3;
 
-    // Tracks each player's validation state
-    private Dictionary<NetworkConnectionToClient, PlayerBetInfo> betInfos
-        = new Dictionary<NetworkConnectionToClient, PlayerBetInfo>();
+    [Tooltip("Seconds players get to fund the match. 120 for testing, raise for production.")]
+    [SerializeField] private float fundingTimeoutSeconds = 120f;
 
-    private string matchDepositAddress = "";
+    [Tooltip("Seconds between deposit polls.")]
+    [SerializeField] private float pollIntervalSeconds = 5f;
 
-    private string usedTxidsPath => Application.persistentDataPath + "/usedtxids.txt";
+    [Tooltip("minconf passed to listreceivedbyaddress. 0 shows unconfirmed payments so the " +
+             "UI can display 'Confirming n/3'. Set to 1 if your daemon rejects 0.")]
+    [SerializeField] private int pollMinConfirmations = 0;
+
+    [Header("Mid-match disconnect")]
+    [Tooltip("Seconds a player who drops mid-match has before they forfeit the pot. Kept " +
+             "short because the window cannot yet be used to rejoin — it is only a delay " +
+             "until session-token reconnect exists. Set 0 to forfeit immediately.")]
+    [SerializeField] private float forfeitGraceSeconds = 5f;
+
+    public decimal BetAmount { get; private set; }
+    public int RequiredConfirmations => requiredConfirmations;
+
+    [SyncVar(hook = nameof(OnPlayer1StatusChanged))] private string player1Status = "";
+    [SyncVar(hook = nameof(OnPlayer2StatusChanged))] private string player2Status = "";
+
+    [SyncVar] private double fundingDeadline;
+    public double FundingDeadline => fundingDeadline;
+
+    [SyncVar] private double forfeitDeadline;
+    public double ForfeitDeadline => forfeitDeadline;
 
     private class PlayerBetInfo
     {
-        public string txid;
-        public string payoutAddress; // extracted from TX
-        public bool validated;
+        public NetworkConnectionToClient conn;
+        public int connectionId;
+        public int slot;
+        public string name;
+        public string payoutAddress;
+        public string depositAddress;
+        public decimal received;
+        public int confirmations;
         public bool sceneReady;
+        public bool prompted;
+        public bool issuing;
+        public bool funded;
+        public bool refundStarted;
+        public bool disconnected;
+        public decimal ledgerRecordedAmount;
+        public string lastClientMessage;
     }
+
+    private readonly Dictionary<NetworkConnectionToClient, PlayerBetInfo> betInfos
+        = new Dictionary<NetworkConnectionToClient, PlayerBetInfo>();
+
+    private readonly HashSet<NetworkConnectionToClient> earlyReadyConnections
+        = new HashSet<NetworkConnectionToClient>();
+
+    private BetLedger ledger;
+    private string matchId = "";
+    private bool fundingActive;
+    private bool cancelled;
+    private bool matchStarted;
+    private bool payoutStarted;
+    private Coroutine fundingLoop;
+    private Coroutine forfeitWatch;
 
     void Awake()
     {
+        if (Instance != null && Instance != this)
+            Debug.LogWarning("[DragonatorWallet] A second instance appeared — the newest one wins.");
         Instance = this;
+
+        if (!decimal.TryParse(betAmountXst, NumberStyles.Number, CultureInfo.InvariantCulture,
+                              out decimal parsed) || parsed <= 0m)
+        {
+            parsed = 0.01m;
+            Debug.LogError($"[DragonatorWallet] Invalid betAmountXst '{betAmountXst}' — falling back to {parsed}.");
+        }
+        BetAmount = parsed;
+    }
+
+    public override void OnStartServer()
+    {
+        base.OnStartServer();
+        EnsureLedger();
+        ReportUnresolvedSends();
+        StartCoroutine(RefundOrphanedFundings());
+    }
+
+    private void EnsureLedger()
+    {
+        if (ledger != null) return;
+        int port = XSTDragonNetworkManager.singleton != null
+            ? XSTDragonNetworkManager.singleton.networkPort
+            : 0;
+        ledger = BetLedger.ForPort(port);
+    }
+
+    private void ReportUnresolvedSends()
+    {
+        var unresolved = ledger.GetUnresolvedSends();
+        foreach (var e in unresolved)
+        {
+            Debug.LogError($"[DragonatorWallet] UNRESOLVED {e.kind} from a previous run: " +
+                           $"{e.amount} XST -> {e.payoutAddress} (match {e.matchId}, record {e.recordId}). " +
+                           "Verify against the daemon with listtransactions before resending.");
+        }
+        if (unresolved.Count > 0)
+            Debug.LogError($"[DragonatorWallet] {unresolved.Count} unresolved send(s) need manual review.");
+    }
+
+    [Server]
+    private IEnumerator RefundOrphanedFundings()
+    {
+        var orphaned = ledger.GetOrphanedFundings();
+        if (orphaned.Count == 0) yield break;
+
+        Debug.LogWarning($"[DragonatorWallet] Found {orphaned.Count} unsettled stake(s) from a " +
+                         "previous run — refunding.");
+
+        foreach (var f in orphaned)
+        {
+            Debug.LogWarning($"[DragonatorWallet] Recovery refund: {f.amount} XST -> {f.payoutAddress} " +
+                             $"(match {f.matchId}, conn {f.connectionId}).");
+
+            yield return SendFunds(f.matchId, BetLedger.KindRefund, f.connectionId,
+                                   f.payoutAddress, f.amount, null);
+        }
+
+        Debug.Log("[DragonatorWallet] Recovery refunds complete.");
     }
 
     void OnPlayer1StatusChanged(string old, string newVal) =>
@@ -48,323 +155,667 @@ public class DragonatorWallet : NetworkBehaviour
     void OnPlayer2StatusChanged(string old, string newVal) =>
         BetUI.Instance?.UpdatePlayerStatus(2, newVal);
 
-    private HashSet<NetworkConnectionToClient> earlyReadyConnections
-        = new HashSet<NetworkConnectionToClient>();
+    [Server]
+    private void SetStatus(PlayerBetInfo info, string state)
+    {
+        string line = $"{info.name}: {state}";
+        if (info.slot == 1) player1Status = line;
+        else player2Status = line;
+    }
+
+    [Server]
+    private void Notify(PlayerBetInfo info, bool success, string message)
+    {
+        if (info.lastClientMessage == message) return;
+        info.lastClientMessage = message;
+
+        if (info.conn == null || !NetworkServer.connections.ContainsKey(info.connectionId)) return;
+        TargetFundingMessage(info.conn, success, message);
+    }
 
     [Command(requiresAuthority = false)]
     public void CmdClientReady(NetworkConnectionToClient sender = null)
     {
         if (sender == null) return;
 
-        if (!betInfos.ContainsKey(sender))
+        if (!betInfos.TryGetValue(sender, out var info))
         {
-            Debug.LogWarning($"[DragonatorWallet] CmdClientReady from unknown connection {sender.connectionId} — storing for later.");
             earlyReadyConnections.Add(sender);
             return;
         }
 
-        betInfos[sender].sceneReady = true;
+        info.sceneReady = true;
         Debug.Log($"[DragonatorWallet] Client {sender.connectionId} is scene-ready.");
-        TrySendMatchInfoToAll();
-    }
-    public bool BothPlayersValidated()
-    {
-        if (betInfos.Count < 2) return false;
-        foreach (var info in betInfos.Values)
-            if (!info.validated) return false;
-        return true;
-    }
-    [Server]
-    private void TrySendMatchInfoToAll()
-    {
-        if (string.IsNullOrEmpty(matchDepositAddress)) return;
-        foreach (var info in betInfos.Values)
-            if (!info.sceneReady) return;
-
-        foreach (var conn in betInfos.Keys)
-            TargetReceiveMatchInfo(conn, matchDepositAddress, betAmount);
+        PromptReadyPlayers();
     }
 
     [Server]
     public void InitializeMatch(List<NetworkConnectionToClient> players)
     {
+        EnsureLedger();
+
         betInfos.Clear();
-        int index = 1;
+        cancelled = false;
+        matchStarted = false;
+        payoutStarted = false;
+
+        matchId = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss")
+                + "-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+
+        int slot = 1;
         foreach (var conn in players)
         {
-            betInfos[conn] = new PlayerBetInfo();
-            string name = conn.identity?.GetComponent<Player>()?.username ?? $"Player {index}";
-            if (index == 1) player1Status = $"{name}: Waiting...";
-            else player2Status = $"{name}: Waiting...";
-            index++;
+            if (conn == null) continue;
+            if (slot > 2)
+            {
+                Debug.LogWarning("[DragonatorWallet] More than 2 connections — ignoring the extras.");
+                break;
+            }
+
+            string name = conn.identity?.GetComponent<Player>()?.username ?? $"Player {slot}";
+            var info = new PlayerBetInfo
+            {
+                conn = conn,
+                connectionId = conn.connectionId,
+                slot = slot,
+                name = name
+            };
+            betInfos[conn] = info;
+            SetStatus(info, "Waiting for payout address...");
+            slot++;
         }
 
         foreach (var conn in earlyReadyConnections)
-        {
-            if (betInfos.ContainsKey(conn))
-            {
-                betInfos[conn].sceneReady = true;
-                Debug.Log($"[DragonatorWallet] Late-applied early ready for connection {conn.connectionId}");
-            }
-        }
+            if (betInfos.TryGetValue(conn, out var early)) early.sceneReady = true;
         earlyReadyConnections.Clear();
 
-        StartCoroutine(GenerateMatchAddress(players));
+        fundingActive = true;
+        fundingDeadline = NetworkTime.time + fundingTimeoutSeconds;
+
+        Debug.Log($"[DragonatorWallet] Match {matchId}: funding open for {fundingTimeoutSeconds}s, " +
+                  $"stake {BetAmount} XST per player, {requiredConfirmations} confirmations required.");
+
+        PromptReadyPlayers();
+
+        if (fundingLoop != null) StopCoroutine(fundingLoop);
+        fundingLoop = StartCoroutine(FundingLoop());
     }
 
     [Server]
-    private IEnumerator GenerateMatchAddress(List<NetworkConnectionToClient> players)
+    private void PromptReadyPlayers()
     {
-        // Generate a fresh deposit address for this match
-        string address = null;
-        bool done = false;
+        if (!fundingActive) return;
 
-        Task.Run(async () =>
+        foreach (var info in betInfos.Values)
         {
-            try
-            {
-                var rpc = RpcHandler.GetInstance();
-                string response = await rpc.SendRpcRequest("getnewaddress");
-                var result = JsonConvert.DeserializeObject<RpcResponse>(response);
-                address = result?.result;
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"[DragonatorWallet] getnewaddress failed: {e.Message}");
-            }
-            finally { done = true; }
-        });
-
-        while (!done) yield return null;
-
-        if (string.IsNullOrEmpty(address))
-        {
-            Debug.LogError("[DragonatorWallet] Failed to generate match address.");
-            yield break;
+            if (!info.sceneReady || info.prompted) continue;
+            info.prompted = true;
+            TargetPromptPayoutAddress(info.conn,
+                BetAmount.ToString(CultureInfo.InvariantCulture),
+                requiredConfirmations);
         }
-
-        matchDepositAddress = address;
-        Debug.Log($"[DragonatorWallet] Match address: {matchDepositAddress}");
-
-        TrySendMatchInfoToAll();
-    }
-
-    [TargetRpc]
-    private void TargetReceiveMatchInfo(NetworkConnectionToClient conn,
-        string depositAddress, float amount)
-    {
-        Debug.Log($"[DragonatorWallet] TargetReceiveMatchInfo received on client. Address: {depositAddress}");
-        if (BetUI.Instance == null)
-        {
-            Debug.LogError("[DragonatorWallet] BetUI.Instance is null!");
-            return;
-        }
-        BetUI.Instance.ShowBetUI(depositAddress, amount);
-    }
-    private bool IsTxidUsed(string txid)
-    {
-        if (!File.Exists(usedTxidsPath)) return false;
-        string[] lines = File.ReadAllLines(usedTxidsPath);
-        foreach (var line in lines)
-            if (line.Trim() == txid) return true;
-        return false;
-    }
-
-    private void StoreTxid(string txid)
-    {
-        File.AppendAllText(usedTxidsPath, txid + "\n");
-        Debug.Log($"[DragonatorWallet] TXID stored: {txid}");
     }
 
     [Command(requiresAuthority = false)]
-    public void CmdSubmitTxid(string txid, string payoutAddress,
-        NetworkConnectionToClient sender = null)
+    public void CmdSubmitPayoutAddress(string payoutAddress, NetworkConnectionToClient sender = null)
     {
-        if (!betInfos.ContainsKey(sender))
+        if (sender == null || !betInfos.TryGetValue(sender, out var info))
         {
-            Debug.LogWarning($"[DragonatorWallet] Unknown connection submitted TXID.");
+            Debug.LogWarning("[DragonatorWallet] Payout address from an unknown connection.");
             return;
         }
 
-        // Check if TXID already used
-        if (IsTxidUsed(txid))
+        if (!fundingActive)
         {
-            Debug.LogWarning($"[DragonatorWallet] TXID already used: {txid}");
-            TargetValidationResult(sender, false, "TXID already used.");
+            Notify(info, false, "The funding window is closed.");
             return;
         }
 
-        StoreTxid(txid);
-        betInfos[sender].txid = txid;
-        betInfos[sender].payoutAddress = payoutAddress;
-        Debug.Log($"[DragonatorWallet] TXID received from {sender.connectionId}: {txid}");
-        Debug.Log($"[DragonatorWallet] Payout address: {payoutAddress}");
-        StartCoroutine(ValidateTxid(sender, txid));
+        if (!string.IsNullOrEmpty(info.depositAddress) || info.issuing)
+        {
+            Notify(info, false, "Your deposit address has already been issued.");
+            return;
+        }
+
+        payoutAddress = (payoutAddress ?? "").Trim();
+        if (payoutAddress.Length == 0)
+        {
+            Notify(info, false, "Enter the XST address you want your winnings sent to.");
+            return;
+        }
+
+        info.issuing = true;
+        StartCoroutine(IssueDepositAddress(info, payoutAddress));
     }
 
     [Server]
-    private IEnumerator ValidateTxid(NetworkConnectionToClient conn, string txid)
+    private IEnumerator IssueDepositAddress(PlayerBetInfo info, string payoutAddress)
     {
-        // On validation start
-        if (conn == betInfos.Keys.First())
-            player1Status = player1Status.Split(':')[0] + ": Validating...";
-        else
-            player2Status = player2Status.Split(':')[0] + ": Validating...";
+        JToken validation = null;
+        yield return RpcCall("validateaddress", new object[] { payoutAddress },
+                             r => validation = RpcResult(r, "validateaddress"));
 
-        string response = null;
-        bool done = false;
-
-        Task.Run(async () =>
+        if (validation == null)
         {
-            try
-            {
-                var rpc = RpcHandler.GetInstance();
-                response = await rpc.SendRpcRequest("gettransaction", new object[] { txid });
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"[DragonatorWallet] gettransaction failed: {e.Message}");
-            }
-            finally { done = true; }
+            info.issuing = false;
+            info.lastClientMessage = null;
+            Notify(info, false, "Could not reach the wallet daemon. Try again.");
+            yield break;
+        }
+
+        bool isValid = validation["isvalid"]?.Value<bool>() ?? false;
+        if (!isValid)
+        {
+            info.issuing = false;
+            info.lastClientMessage = null;
+            Notify(info, false, "That is not a valid XST address. Check it and try again.");
+            yield break;
+        }
+
+        string depositAddress = null;
+        yield return RpcCall("getnewaddress", null, r =>
+        {
+            JToken result = RpcResult(r, "getnewaddress");
+            depositAddress = result?.Type == JTokenType.String ? result.Value<string>() : null;
         });
 
-        while (!done) yield return null;
-
-        if (string.IsNullOrEmpty(response))
+        if (string.IsNullOrEmpty(depositAddress))
         {
-            TargetValidationResult(conn, false, "Transaction not found.");
+            info.issuing = false;
+            info.lastClientMessage = null;
+            Notify(info, false, "Could not create a deposit address. Try again.");
             yield break;
         }
 
-        var tx = JsonConvert.DeserializeObject<TransactionResponse>(response);
-        bool correctAddress = false;
-        bool correctAmount = false;
+        info.payoutAddress = payoutAddress;
+        info.depositAddress = depositAddress;
+        info.issuing = false;
 
-        if (tx?.result != null)
-        {
-            foreach (var detail in tx.result.details)
-            {
-                if (detail.address == matchDepositAddress && detail.category == "receive")
-                {
-                    correctAddress = true;
-                    correctAmount = detail.amount >= betAmount;
-                    break;
-                }
-            }
-        }
+        ledger.RecordIssue(matchId, info.connectionId, depositAddress, payoutAddress);
 
-        if (!correctAddress || !correctAmount)
-        {
-            Debug.LogWarning($"[DragonatorWallet] TX invalid.");
-            TargetValidationResult(conn, false, "Invalid transaction.");
-            yield break;
-        }
+        Debug.Log($"[DragonatorWallet] {info.name}: deposit {depositAddress}, payout {payoutAddress}");
 
-        betInfos[conn].validated = true;
-
-        // On success
-        if (conn == betInfos.Keys.First())
-            player1Status = player1Status.Split(':')[0] + ": <color=#00FF00>Validated</color>";
-        else
-            player2Status = player2Status.Split(':')[0] + ": <color=#00FF00>Validated</color>";
-
-        Debug.Log($"[DragonatorWallet] TX validated for {conn.connectionId}.");
-        TargetValidationResult(conn, true, "Transaction validated");
-        CheckBothValidated();
+        SetStatus(info, "Waiting for payment...");
+        TargetShowDepositAddress(info.conn, depositAddress,
+                                 BetAmount.ToString(CultureInfo.InvariantCulture));
     }
 
     [Server]
-    private void CheckBothValidated()
+    private IEnumerator FundingLoop()
     {
-        foreach (var info in betInfos.Values)
+        while (fundingActive)
         {
-            if (!info.validated) return;
+            yield return PollDeposits();
+            if (!fundingActive) break;
+
+            if (AllFunded())
+            {
+                BeginMatch();
+                break;
+            }
+
+            if (NetworkTime.time >= fundingDeadline)
+            {
+                Debug.LogWarning($"[DragonatorWallet] Match {matchId}: funding deadline reached.");
+                CancelFunding("Funding timed out.");
+                break;
+            }
+
+            yield return new WaitForSeconds(pollIntervalSeconds);
         }
 
-        Debug.Log("[DragonatorWallet] Both players validated — starting match.");
+        fundingLoop = null;
+    }
+
+    [Server]
+    private IEnumerator PollDeposits()
+    {
+        bool anyAwaiting = false;
+        foreach (var info in betInfos.Values)
+            if (!string.IsNullOrEmpty(info.depositAddress) && !info.funded) anyAwaiting = true;
+
+        if (!anyAwaiting) yield break;
+
+        JToken rows = null;
+        yield return RpcCall("listreceivedbyaddress",
+                             new object[] { pollMinConfirmations, true },
+                             r => rows = RpcResult(r, "listreceivedbyaddress"));
+
+        if (rows == null)
+        {
+            Debug.LogWarning("[DragonatorWallet] Deposit poll failed — retrying next tick.");
+            yield break;
+        }
+
+        foreach (var info in betInfos.Values)
+        {
+            if (string.IsNullOrEmpty(info.depositAddress) || info.funded) continue;
+
+            decimal received = 0m;
+            int confirmations = 0;
+
+            foreach (var row in rows)
+            {
+                if (row["address"]?.Value<string>() != info.depositAddress) continue;
+                received = row["amount"]?.Value<decimal>() ?? 0m;
+                confirmations = row["confirmations"]?.Value<int>() ?? 0;
+                break;
+            }
+
+            info.received = received;
+            info.confirmations = confirmations;
+
+            if (received > 0m && received != info.ledgerRecordedAmount)
+            {
+                ledger.RecordFunded(matchId, info.connectionId, info.depositAddress,
+                                    info.payoutAddress, received);
+                info.ledgerRecordedAmount = received;
+            }
+
+            if (received <= 0m)
+            {
+                SetStatus(info, "Waiting for payment...");
+                continue;
+            }
+
+            if (received < BetAmount)
+            {
+                SetStatus(info, $"<color=#FFAA00>Underpaid {received}/{BetAmount}</color>");
+                Notify(info, false, $"Received {received} XST but the stake is {BetAmount} XST. " +
+                                    "Send the difference to the same address.");
+                continue;
+            }
+
+            if (confirmations < requiredConfirmations)
+            {
+                SetStatus(info, $"<color=#FFAA00>Confirming {confirmations}/{requiredConfirmations}</color>");
+                Notify(info, true, $"Payment seen — waiting for {requiredConfirmations} confirmations " +
+                                   $"({confirmations}/{requiredConfirmations}).");
+                continue;
+            }
+
+            info.funded = true;
+            SetStatus(info, "<color=#00FF00>Paid</color>");
+            Notify(info, true, $"Payment confirmed ({received} XST). Waiting for your opponent.");
+            Debug.Log($"[DragonatorWallet] {info.name} funded: {received} XST at {info.depositAddress}");
+        }
+    }
+
+    [Server]
+    private bool AllFunded()
+    {
+        if (betInfos.Count < 2) return false;
+        foreach (var info in betInfos.Values)
+            if (!info.funded) return false;
+        return true;
+    }
+
+    public bool BothPlayersValidated() => AllFunded();
+
+    [Server]
+    private void BeginMatch()
+    {
+        if (matchStarted) return;
+        matchStarted = true;
+        fundingActive = false;
+        fundingDeadline = 0;
+
+        Debug.Log($"[DragonatorWallet] Match {matchId}: both players funded — starting.");
+
+        ledger.RecordMatchState(matchId, BetLedger.MatchPlaying);
 
         RpcHideStatusDisplay();
 
-        NetworkConnectionToClient firstConn = null;
-        foreach (var conn in betInfos.Keys)
+        PlayerBetInfo first = SlotInfo(1);
+        if (first?.conn?.identity == null)
         {
-            firstConn = conn;
-            break;
-        }
-
-        if (firstConn == null)
-        {
-            Debug.LogError("[DragonatorWallet] No connections found!");
+            Debug.LogError("[DragonatorWallet] Slot 1 has no player identity — cannot start match!");
             return;
         }
 
         GameManager gameManager = FindFirstObjectByType<GameManager>();
         if (gameManager != null)
-            gameManager.StartGameForPlayer(firstConn.identity);
+            gameManager.StartGameForPlayer(first.conn.identity);
         else
             Debug.LogError("[DragonatorWallet] GameManager not found!");
+    }
+
+    [Server]
+    public void NotifyPlayerDisconnected(NetworkConnectionToClient conn)
+    {
+        if (conn == null) return;
+        if (!betInfos.TryGetValue(conn, out var info)) return;
+
+        info.disconnected = true;
+
+        if (fundingActive)
+        {
+            Debug.LogWarning($"[DragonatorWallet] {info.name} left during funding — cancelling match {matchId}.");
+            CancelFunding("Your opponent left before the match was funded.");
+            return;
+        }
+
+        if (!matchStarted || payoutStarted || cancelled) return;
+
+        if (AllDisconnected())
+        {
+            RefundAllFunded("Both players disconnected — match voided.");
+            return;
+        }
+
+        Debug.LogWarning($"[DragonatorWallet] {info.name} dropped mid-match — " +
+                         $"{forfeitGraceSeconds}s before forfeit.");
+
+        if (forfeitWatch == null)
+            forfeitWatch = StartCoroutine(ForfeitCountdown(info));
+    }
+
+    [Server]
+    private bool AllDisconnected()
+    {
+        if (betInfos.Count == 0) return false;
+        foreach (var info in betInfos.Values)
+            if (!info.disconnected) return false;
+        return true;
+    }
+
+    [Server]
+    private IEnumerator ForfeitCountdown(PlayerBetInfo leaver)
+    {
+        forfeitDeadline = NetworkTime.time + forfeitGraceSeconds;
+
+        SetStatus(leaver, "<color=#FF0000>Disconnected</color>");
+        foreach (var info in betInfos.Values)
+        {
+            if (info.disconnected) continue;
+            SetStatus(info, "<color=#FFAA00>Waiting for opponent...</color>");
+            Notify(info, false, $"{leaver.name} disconnected. If they do not return you win the pot.");
+        }
+        RpcShowStatusDisplay();
+
+        while (NetworkTime.time < forfeitDeadline)
+        {
+            if (AllDisconnected())
+            {
+                forfeitWatch = null;
+                forfeitDeadline = 0;
+                RefundAllFunded("Both players disconnected — match voided.");
+                yield break;
+            }
+            yield return null;
+        }
+
+        forfeitDeadline = 0;
+        forfeitWatch = null;
+
+        PlayerBetInfo remaining = null;
+        int stillHere = 0;
+        foreach (var info in betInfos.Values)
+            if (!info.disconnected) { remaining = info; stillHere++; }
+
+        if (stillHere == 0)
+        {
+            RefundAllFunded("Both players disconnected — match voided.");
+            yield break;
+        }
+
+        if (stillHere > 1 || remaining == null) yield break;
+
+        Debug.LogWarning($"[DragonatorWallet] {leaver.name} did not return — " +
+                         $"{remaining.name} wins match {matchId} by forfeit.");
+
+        Notify(remaining, true, "Your opponent forfeited — paying you the pot.");
+        PayWinner(remaining.conn);
+    }
+
+    [Server]
+    private void RefundAllFunded(string reason)
+    {
+        if (cancelled) return;
+        cancelled = true;
+
+        if (forfeitWatch != null) { StopCoroutine(forfeitWatch); forfeitWatch = null; }
+        forfeitDeadline = 0;
+
+        Debug.LogWarning($"[DragonatorWallet] Match {matchId} voided: {reason}");
+
+        foreach (var info in betInfos.Values)
+        {
+            if (info.received <= 0m || info.refundStarted) continue;
+
+            info.refundStarted = true;
+            SetStatus(info, "<color=#FFAA00>Refunding...</color>");
+            Notify(info, false, $"{reason} Refunding {info.received} XST.");
+
+            Debug.Log($"[DragonatorWallet] Voided-match refund: {info.received} XST to " +
+                      $"{info.name} ({info.payoutAddress}).");
+            StartCoroutine(SendFunds(matchId, BetLedger.KindRefund, info.connectionId,
+                                     info.payoutAddress, info.received, info));
+        }
+    }
+
+    [Server]
+    private void CancelFunding(string reason)
+    {
+        if (cancelled) return;
+        cancelled = true;
+        fundingActive = false;
+        fundingDeadline = 0;
+
+        if (fundingLoop != null) { StopCoroutine(fundingLoop); fundingLoop = null; }
+
+        foreach (var info in betInfos.Values)
+        {
+            if (info.received > 0m && !info.refundStarted)
+            {
+                info.refundStarted = true;
+                SetStatus(info, "<color=#FFAA00>Refunding...</color>");
+                Notify(info, false, $"{reason} Refunding {info.received} XST to {info.payoutAddress}.");
+
+                Debug.Log($"[DragonatorWallet] Refunding {info.received} XST to {info.name} ({info.payoutAddress}).");
+                StartCoroutine(SendFunds(matchId, BetLedger.KindRefund, info.connectionId,
+                                         info.payoutAddress, info.received, info));
+            }
+            else
+            {
+                SetStatus(info, "<color=#FF0000>Cancelled</color>");
+                Notify(info, false, reason);
+            }
+        }
+    }
+
+    [Server]
+    public void PayWinner(NetworkConnectionToClient winnerConn)
+    {
+        if (winnerConn == null || !betInfos.TryGetValue(winnerConn, out var winner))
+        {
+            Debug.LogError("[DragonatorWallet] PayWinner: unknown winner connection — no payout sent.");
+            return;
+        }
+
+        if (payoutStarted)
+        {
+            Debug.LogWarning($"[DragonatorWallet] PayWinner called twice for match {matchId} — ignoring.");
+            return;
+        }
+        payoutStarted = true;
+
+        decimal pot = 0m;
+        foreach (var info in betInfos.Values) pot += info.received;
+
+        if (pot <= 0m)
+        {
+            Debug.LogError($"[DragonatorWallet] Match {matchId}: pot is {pot} — nothing to pay out.");
+            return;
+        }
+
+        Debug.Log($"[DragonatorWallet] Match {matchId}: paying {pot} XST to {winner.name} ({winner.payoutAddress}).");
+        StartCoroutine(SendFunds(matchId, BetLedger.KindPayout, winner.connectionId,
+                                 winner.payoutAddress, pot, winner));
+    }
+
+    [Server]
+    private IEnumerator SendFunds(string sendMatchId, string kind, int connectionId,
+                                  string address, decimal amount, PlayerBetInfo notify)
+    {
+        if (string.IsNullOrEmpty(address) || amount <= 0m)
+        {
+            Debug.LogError($"[DragonatorWallet] {kind} skipped for match {sendMatchId}: " +
+                           $"address='{address}', amount={amount}. MANUAL REVIEW REQUIRED.");
+            yield break;
+        }
+
+        EnsureLedger();
+
+        if (ledger.HasSettled(sendMatchId, kind, connectionId))
+        {
+            Debug.LogWarning($"[DragonatorWallet] {kind} for match {sendMatchId} / conn {connectionId} " +
+                             "already settled — not sending again.");
+            yield break;
+        }
+
+        SendToAddress sender = FindFirstObjectByType<SendToAddress>();
+        if (sender == null)
+        {
+            Debug.LogError("[DragonatorWallet] SendToAddress component not found — cannot send funds!");
+            yield break;
+        }
+
+        string recordId = ledger.BeginSend(sendMatchId, kind, connectionId, address, amount);
+
+        string txid = null;
+        bool done = false;
+
+        Task.Run(async () =>
+        {
+            try { txid = await sender.SendTransaction(address, amount); }
+            catch (Exception e) { txid = "Error: " + e.Message; }
+            finally { done = true; }
+        });
+
+        while (!done) yield return null;
+
+        bool ok = !string.IsNullOrEmpty(txid)
+               && !txid.StartsWith("Error")
+               && !txid.StartsWith("Parsing error")
+               && !txid.StartsWith("Unexpected")
+               && !txid.StartsWith("Transaction failed");
+
+        if (ok)
+        {
+            ledger.CompleteSend(recordId, txid);
+            Debug.Log($"[DragonatorWallet] {kind} sent: {amount} XST -> {address}, txid {txid}");
+
+            if (kind == BetLedger.KindPayout)
+                ledger.RecordMatchState(sendMatchId, BetLedger.MatchSettled);
+
+            if (notify?.conn != null && NetworkServer.connections.ContainsKey(connectionId))
+                TargetShowTxid(notify.conn, kind, txid);
+        }
+        else
+        {
+            ledger.FailSend(recordId, txid ?? "null response");
+            Debug.LogError($"[DragonatorWallet] {kind} FAILED: {amount} XST -> {address} ({txid}). " +
+                           $"Ledger record {recordId} needs manual review.");
+
+            if (notify != null)
+            {
+                notify.lastClientMessage = null;
+                Notify(notify, false, $"{kind} could not be sent. Keep this reference: {recordId}");
+            }
+        }
+    }
+
+    private IEnumerator RpcCall(string method, object[] args, Action<string> onResult)
+    {
+        RpcHandler rpc = RpcHandler.GetInstance();
+        string response = null;
+        bool done = false;
+
+        Task.Run(async () =>
+        {
+            try { response = await rpc.SendRpcRequest(method, args); }
+            catch (Exception e) { Debug.LogError($"[DragonatorWallet] {method} threw: {e.Message}"); }
+            finally { done = true; }
+        });
+
+        while (!done) yield return null;
+        onResult(response);
+    }
+
+    private static JToken RpcResult(string response, string method)
+    {
+        if (string.IsNullOrEmpty(response)) return null;
+        try
+        {
+            JObject parsed = JObject.Parse(response);
+            JToken error = parsed["error"];
+            if (error != null && error.Type != JTokenType.Null)
+            {
+                Debug.LogError($"[DragonatorWallet] {method} returned error: {error}");
+                return null;
+            }
+            return parsed["result"];
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[DragonatorWallet] {method} response unparseable: {e.Message}");
+            return null;
+        }
+    }
+
+    [Server]
+    private PlayerBetInfo SlotInfo(int slot)
+    {
+        foreach (var info in betInfos.Values)
+            if (info.slot == slot) return info;
+        return null;
+    }
+
+    [TargetRpc]
+    private void TargetPromptPayoutAddress(NetworkConnectionToClient conn, string amount, int confirmations)
+    {
+        if (BetUI.Instance == null)
+        {
+            Debug.LogError("[DragonatorWallet] BetUI.Instance is null — cannot prompt for payout address.");
+            return;
+        }
+        BetUI.Instance.ShowPayoutAddressStep(amount, confirmations);
+    }
+
+    [TargetRpc]
+    private void TargetShowDepositAddress(NetworkConnectionToClient conn, string depositAddress, string amount)
+    {
+        BetUI.Instance?.ShowDepositStep(depositAddress, amount);
+    }
+
+    [TargetRpc]
+    private void TargetFundingMessage(NetworkConnectionToClient conn, bool success, string message)
+    {
+        Debug.Log($"[DragonatorWallet] Funding message: {success} — {message}");
+        BetUI.Instance?.ShowFundingMessage(success, message);
+    }
+
+    [TargetRpc]
+    private void TargetShowTxid(NetworkConnectionToClient conn, string kind, string txid)
+    {
+        if (kind == BetLedger.KindPayout)
+            FindFirstObjectByType<OutcomeUI>()?.ShowWinnerTxid(txid);
+        else
+            BetUI.Instance?.ShowFundingMessage(true, $"Refund sent. TXID: {txid}");
     }
 
     [ClientRpc]
     private void RpcHideStatusDisplay()
     {
         BetUI.Instance?.HideStatusDisplay();
+        BetUI.Instance?.HideBetUI();
     }
 
-    [Server]
-    public void PayWinner(NetworkConnectionToClient winnerConn)
+    [ClientRpc]
+    private void RpcShowStatusDisplay()
     {
-        if (!betInfos.ContainsKey(winnerConn)) return;
-
-        string winnerAddress = betInfos[winnerConn].payoutAddress;
-        float payout = betAmount * 2f;
-
-        StartCoroutine(SendPayout(winnerAddress, payout, winnerConn));
-    }
-
-    [Server]
-    private IEnumerator SendPayout(string address, float amount, NetworkConnectionToClient winnerConn)
-    {
-        bool done = false;
-        string txid = null;
-
-        Task.Run(async () =>
-        {
-            try
-            {
-                SendToAddress sender = FindFirstObjectByType<SendToAddress>();
-                txid = await sender.SendTransaction(address, (decimal)amount);
-            }
-            catch (System.Exception e)
-            {
-                Debug.LogError($"[DragonatorWallet] Payout failed: {e.Message}");
-            }
-            finally { done = true; }
-        });
-
-        while (!done) yield return null;
-
-        if (!string.IsNullOrEmpty(txid) && !txid.StartsWith("Error"))
-        {
-            Debug.Log($"[DragonatorWallet] Payout sent! TXID: {txid} to {address}");
-            TargetShowWinnerTxid(winnerConn, txid); // call it here
-        }
-        else
-            Debug.LogError($"[DragonatorWallet] Payout FAILED to {address}: {txid}");
-    }
-
-    [TargetRpc]
-    private void TargetValidationResult(NetworkConnectionToClient conn,
-        bool success, string message)
-    {
-        Debug.Log($"[DragonatorWallet] Validation: {success} — {message}");
-        BetUI.Instance?.ShowValidationResult(success, message);
-    }
-
-    [TargetRpc]
-    private void TargetShowWinnerTxid(NetworkConnectionToClient conn, string txid)
-    {
-        FindFirstObjectByType<OutcomeUI>()?.ShowWinnerTxid(txid);
+        BetUI.Instance?.ShowStatusDisplay();
     }
 }
 
@@ -372,23 +823,4 @@ public class RpcResponse
 {
     public string result;
     public object error;
-}
-
-public class TransactionResponse
-{
-    public TxResult result;
-}
-
-public class TxResult
-{
-    public string txid;
-    public float amount;
-    public List<TxDetail> details = new List<TxDetail>();
-}
-
-public class TxDetail
-{
-    public string address;
-    public string category; // "send" or "receive"
-    public float amount;
 }

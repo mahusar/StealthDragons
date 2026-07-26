@@ -12,8 +12,12 @@ public class SendToAddress : MonoBehaviour
     {
         rpcHandler = RpcHandler.GetInstance();
     }
+
     public async Task<string> SendTransaction(string address, decimal amount)
     {
+        if (rpcHandler == null)
+            return "Error: RPC handler not initialized.";
+
         string response = await rpcHandler.SendRpcRequest("sendtoaddress", new object[] { address, amount, "", "", true });
 
         if (!string.IsNullOrEmpty(response))
@@ -28,7 +32,7 @@ public class SendToAddress : MonoBehaviour
 
                 if (jsonResponse["result"] != null && jsonResponse["result"].Type == JTokenType.String)
                 {
-                    return jsonResponse["result"].ToString(); 
+                    return jsonResponse["result"].ToString();
                 }
 
                 return "Unexpected response format!";

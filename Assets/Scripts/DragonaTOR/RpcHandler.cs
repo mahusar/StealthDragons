@@ -10,11 +10,17 @@ namespace Core
     public class RpcHandler : MonoBehaviour
     {
         private static RpcHandler instance;
-        private HttpClient client;
+
+        private static readonly HttpClient http = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(20)
+        };
 
         public string rpcUser;
         public string rpcPassword;
         public string rpcUrl;
+
+        public bool Configured { get; private set; }
 
         public static RpcHandler GetInstance()
         {
@@ -22,7 +28,7 @@ namespace Core
             {
                 GameObject obj = new GameObject("RpcHandler");
                 instance = obj.AddComponent<RpcHandler>();
-                DontDestroyOnLoad(obj); 
+                DontDestroyOnLoad(obj);
             }
             return instance;
         }
@@ -43,35 +49,48 @@ namespace Core
 
         public void LoadRpcSettings()
         {
-            // On server (headless) read from config file
             string configPath = Application.persistentDataPath + "/rpc.conf";
             if (System.IO.File.Exists(configPath))
             {
                 string[] lines = System.IO.File.ReadAllLines(configPath);
                 foreach (var line in lines)
                 {
-                    if (line.StartsWith("rpcuser=")) rpcUser = line.Split('=')[1].Trim();
-                    if (line.StartsWith("rpcpassword=")) rpcPassword = line.Split('=')[1].Trim();
-                    if (line.StartsWith("rpcurl=")) rpcUrl = line.Split('=')[1].Trim();
+                    int eq = line.IndexOf('=');
+                    if (eq < 0) continue;
+
+                    string key = line.Substring(0, eq).Trim();
+                    string value = line.Substring(eq + 1).Trim();
+
+                    if (key == "rpcuser") rpcUser = value;
+                    else if (key == "rpcpassword") rpcPassword = value;
+                    else if (key == "rpcurl") rpcUrl = value;
                 }
-                Debug.Log("[RpcHandler] Loaded RPC settings from config file.");
+                Configured = !string.IsNullOrEmpty(rpcUser)
+                          && !string.IsNullOrEmpty(rpcPassword)
+                          && !string.IsNullOrEmpty(rpcUrl);
+
+                if (Configured)
+                    Debug.Log($"[RpcHandler] Loaded RPC settings from {configPath} (url {rpcUrl})");
+                else
+                    Debug.LogError($"[RpcHandler] {configPath} is missing rpcuser/rpcpassword/rpcurl.");
+            }
+            else if (Mirror.Utils.IsHeadless())
+            {
+                Configured = false;
+                Debug.LogError($"[RpcHandler] FATAL: no rpc.conf at {configPath}. " +
+                               "Server cannot validate bets or pay out — shutting down.");
+                Application.Quit(1);
             }
             else
             {
-                // Fallback to PlayerPrefs for editor testing
                 rpcUser = PlayerPrefs.GetString("RPC_User", "defaultuser");
                 rpcPassword = PlayerPrefs.GetString("RPC_Password", "defaultpassword");
-                rpcUrl = PlayerPrefs.GetString("RPC_Url", "http://127.0.0.1:8080/");
-                Debug.LogWarning("[RpcHandler] No rpc.conf found, using PlayerPrefs.");
+                rpcUrl = PlayerPrefs.GetString("RPC_Url", "http://127.0.0.1:46502/");
+                Configured = true;
+                Debug.LogWarning($"[RpcHandler] No rpc.conf found, using PlayerPrefs ({rpcUrl}).");
             }
-        }/*
-        Create `/rpc.conf` on Ubuntu server:
-```
-rpcuser=yourdaemonuser
-rpcpassword = yourdaemonpassword
-rpcurl=http://127.0.0.1:46502/
+        }
 
-*/
         public void SaveRpcSettings(string user, string password, string url)
         {
             rpcUser = user;
@@ -86,25 +105,32 @@ rpcurl=http://127.0.0.1:46502/
 
         public async Task<string> SendRpcRequest(string method, object[] parameters = null)
         {
-            using (HttpClient client = new HttpClient())
+            if (!Configured)
             {
-                var auth = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{rpcUser}:{rpcPassword}"));
-                client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", auth);
+                Debug.LogError($"RPC Error ({method}): handler has no credentials.");
+                return null;
+            }
 
-                RpcRequest request = new RpcRequest(method, parameters ?? new object[] { });
-                string requestJson = JsonConvert.SerializeObject(request);
-                var content = new StringContent(requestJson, Encoding.UTF8, "application/json");
+            RpcRequest request = new RpcRequest(method, parameters ?? new object[] { });
+            string requestJson = JsonConvert.SerializeObject(request);
 
-                try
-                {
-                    HttpResponseMessage response = await client.PostAsync(rpcUrl, content);
-                    return await response.Content.ReadAsStringAsync();
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogError($"RPC Error ({method}): " + ex.Message);
-                    return null;
-                }
+            var message = new HttpRequestMessage(HttpMethod.Post, rpcUrl)
+            {
+                Content = new StringContent(requestJson, Encoding.UTF8, "application/json")
+            };
+            var auth = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{rpcUser}:{rpcPassword}"));
+            message.Headers.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", auth);
+
+            try
+            {
+                HttpResponseMessage response = await http.SendAsync(message);
+                return await response.Content.ReadAsStringAsync();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"RPC Error ({method}): " + ex.Message);
+                return null;
             }
         }
     }
