@@ -8,7 +8,7 @@ public abstract partial class Entity : NetworkBehaviour
 {
     [Header("Combat")]
     public Combat combat;
-    [SyncVar] public Player owner; // Track the owning Player
+    [SyncVar] public Player owner;
 
     [Header("Stats")]
     [SyncVar] public int health = 0;
@@ -21,25 +21,24 @@ public abstract partial class Entity : NetworkBehaviour
     [HideInInspector] public bool isTargeting = false;
     [HideInInspector] public GameObject arrowObject;
 
-    public bool isTargetable = true; // If a Player/Minion can be targeted.
+    public bool isTargetable = true;
 
-    [Header("Special Properties")] // These spawn properties are set by our ScriptableCards, when the card is spawned into the game.
-    [SyncVar] public int waitTurn = 1; // What turn does this card become active? Is it active as soon as it spawns, or do we wait 1, 2, 3, etc. turns before it can attack?
-    public bool taunt = false; // Whether it's a taunt minion or not.
-    // waitTurn is also used for stunning/freezing/etc. minions.
+    [Header("Special Properties")]
+    [SyncVar] public int waitTurn = 1;
+    [SyncVar] public bool hasAttackedThisTurn = false;
+    public bool taunt = false;
 
     public bool IsDead() => health <= 0;
-    public bool CanAttack() => Player.gameManager.isOurTurn && waitTurn == 0 && casterType == Target.FRIENDLIES;
-    public bool CantAttack() => Player.gameManager.isOurTurn && waitTurn > 0 && casterType == Target.FRIENDLIES;
+    public bool CanAttack() => Player.gameManager.isOurTurn && waitTurn == 0 && !hasAttackedThisTurn && casterType == Target.FRIENDLIES;
+    public bool CantAttack() => Player.gameManager.isOurTurn && (waitTurn > 0 || hasAttackedThisTurn) && casterType == Target.FRIENDLIES;
 
     public virtual void SpawnTargetingArrow(CardInfo card, bool IsAbility = false)
     {
         Player.localPlayer.isTargeting = true;
         isTargeting = true;
 
-        Cursor.visible = false; //Hide cursor
+        Cursor.visible = false;
 
-        // If we have a spawnOffset, use it. Otherwise, use transform position.
         Vector3 spawnPos = spawnOffset == null ? transform.position : spawnOffset.position;
         arrowObject = Instantiate(arrow.gameObject, spawnPos, Quaternion.identity);
         arrowObject.GetComponent<TargetingArrow>().DrawLine(this, card, spawnPos, IsAbility);

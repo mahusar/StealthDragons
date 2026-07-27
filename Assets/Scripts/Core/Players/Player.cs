@@ -46,7 +46,6 @@ public class Player : Entity
     public override void OnStartServer()
     {
         base.OnStartServer();
-        // Assign firstPlayer to the first connected player
         Player[] onlinePlayers = FindObjectsOfType<Player>();
         if (onlinePlayers.Length == 1)
         {
@@ -61,7 +60,6 @@ public class Player : Entity
         Debug.Log($"Player: Local player set for {username}, firstPlayer: {firstPlayer}");
         CmdLoadPlayer(PlayerPrefs.GetString("Name"));
 
-        // If this is the first player, wait for enemy and start the game
         if (firstPlayer)
         {
             StartCoroutine(StartGameAfterDelay());
@@ -79,7 +77,6 @@ public class Player : Entity
 
         Debug.Log($"Player {username}: Enemy found, waiting for bet validation...");
 
-        // Wait for wallet to validate both players
         DragonatorWallet wallet = FindFirstObjectByType<DragonatorWallet>();
         if (wallet == null)
         {
@@ -111,6 +108,79 @@ public class Player : Entity
     public void CmdLoadPlayer(string user)
     {
         username = user;
+    }
+
+    [Command]
+    public void CmdRequestAttack(uint attackerNetId, uint targetNetId)
+    {
+        ServerRequestAttack(attackerNetId, targetNetId);
+    }
+
+    [Server]
+    public void ServerRequestAttack(uint attackerNetId, uint targetNetId)
+    {
+        if (gameManager == null) gameManager = FindFirstObjectByType<GameManager>();
+        if (gameManager == null || !gameManager.IsTurnOf(this))
+        {
+            Debug.LogWarning($"CmdRequestAttack rejected: not {username}'s turn.");
+            return;
+        }
+
+        if (!NetworkServer.spawned.TryGetValue(attackerNetId, out NetworkIdentity attackerId) ||
+            !NetworkServer.spawned.TryGetValue(targetNetId, out NetworkIdentity targetId))
+        {
+            Debug.LogWarning($"CmdRequestAttack rejected: attacker {attackerNetId} or target {targetNetId} not spawned.");
+            return;
+        }
+
+        FieldCard attacker = attackerId.GetComponent<FieldCard>();
+        Entity target = targetId.GetComponent<Entity>();
+
+        if (attacker == null || target == null)
+        {
+            Debug.LogWarning("CmdRequestAttack rejected: attacker must be a FieldCard and target an Entity.");
+            return;
+        }
+
+        if (attacker.owner != this)
+        {
+            Debug.LogWarning($"CmdRequestAttack rejected: {username} does not own {attacker.gameObject.name}.");
+            return;
+        }
+
+        if (attacker.waitTurn > 0)
+        {
+            Debug.LogWarning($"CmdRequestAttack rejected: {attacker.gameObject.name} still has waitTurn {attacker.waitTurn}.");
+            return;
+        }
+
+        if (attacker.hasAttackedThisTurn)
+        {
+            Debug.LogWarning($"CmdRequestAttack rejected: {attacker.gameObject.name} already attacked this turn.");
+            return;
+        }
+
+        if (attacker.health <= 0 || target.health <= 0 || !target.isTargetable)
+        {
+            Debug.LogWarning("CmdRequestAttack rejected: attacker or target is dead or untargetable.");
+            return;
+        }
+
+        Player defender = target is Player targetPlayer ? targetPlayer : target.owner;
+        if (defender == null || defender == this)
+        {
+            Debug.LogWarning($"CmdRequestAttack rejected: {username} cannot attack their own side.");
+            return;
+        }
+
+        if (defender.tauntCount > 0 && !(target is FieldCard targetCard && targetCard.taunt))
+        {
+            Debug.LogWarning($"CmdRequestAttack rejected: {defender.username} has {defender.tauntCount} taunt creature(s); target must be one of them.");
+            return;
+        }
+
+        attacker.hasAttackedThisTurn = true;
+        attacker.combat.ServerResolveAttack(attacker.gameObject, target.gameObject);
     }
 
     void UpdatePlayerName(string oldUser, string newUser)

@@ -9,11 +9,11 @@ public class Deck : NetworkBehaviour
     [HideInInspector] public int deckSize = 30;
     [HideInInspector] public int handSize = 7;
     [Header("Decks")]
-    public SyncListCard deckList = new SyncListCard(); 
-    public SyncListCard graveyard = new SyncListCard(); 
-    public SyncListCard hand = new SyncListCard(); 
+    public SyncListCard deckList = new SyncListCard();
+    public SyncListCard graveyard = new SyncListCard();
+    public SyncListCard hand = new SyncListCard();
     [Header("Battlefield")]
-    public SyncListCard playerField = new SyncListCard(); 
+    public SyncListCard playerField = new SyncListCard();
     [Header("Starting Deck")]
     public CardAndAmount[] startingDeck;
     [HideInInspector] public bool spawnInitialCards = true;
@@ -36,11 +36,9 @@ public class Deck : NetworkBehaviour
 
     private IEnumerator WaitForEnemyThenUpdate()
     {
-        // Wait for local player to exist first
         while (Player.localPlayer == null)
             yield return null;
 
-        // Wait for enemy to be found by local player
         while (!Player.localPlayer.hasEnemy)
         {
             Player.localPlayer.UpdateEnemyInfo();
@@ -52,47 +50,59 @@ public class Deck : NetworkBehaviour
         if (Player.gameManager?.enemyHand != null)
             Player.gameManager.enemyHand.UpdateHandCards();
     }
+    private bool handCallbackRegistered;
+
+    private void RegisterHandCallback()
+    {
+        if (handCallbackRegistered) return;
+        handCallbackRegistered = true;
+        hand.Callback += OnHandChanged;
+    }
+
     public override void OnStartServer()
     {
         base.OnStartServer();
-        hand.Callback += OnHandChanged;
+        RegisterHandCallback();
     }
     public override void OnStartClient()
     {
         base.OnStartClient();
         if (isLocalPlayer)
         {
-            hand.Callback += OnHandChanged;
+            RegisterHandCallback();
             if (Player.gameManager == null)
             {
                 Player.gameManager = FindObjectOfType<GameManager>();
-    //            Debug.Log($"Player {netIdentity.netId}: OnStartClient: Initialized GameManager.");
             }
-    //        Debug.Log($"Player {netIdentity.netId}: OnStartClient calling CmdRequestHandState");
-            CmdRequestHandState();
+            StartCoroutine(RebuildHandWhenUIReady());
         }
     }
 
-    [Command]
-    private void CmdRequestHandState()
+    private IEnumerator RebuildHandWhenUIReady()
     {
-        string playerId = netIdentity.netId.ToString();
-   //     Debug.Log($"Player {playerId}: CmdRequestHandState called. hand count: {hand.Count}, connectionToClient: {(connectionToClient != null ? connectionToClient.identity.netId.ToString() : "null")}");
-        for (int i = 0; i < hand.Count; i++)
+        float deadline = Time.realtimeSinceStartup + 10f;
+        while (Time.realtimeSinceStartup < deadline)
         {
-           
-            TargetAddCardToHand(connectionToClient, i, hand[i]);
+            if (Player.gameManager == null)
+                Player.gameManager = FindObjectOfType<GameManager>();
+
+            if (Player.gameManager?.playerHand != null && Player.gameManager.playerHand.IsReady)
+            {
+                Player.gameManager.playerHand.UpdateHandCardsLocal();
+                yield break;
+            }
+            yield return null;
         }
+
+        Debug.LogWarning($"Deck: playerHand never became available for {player?.username}; hand not rendered.");
     }
 
     void OnHandChanged(SyncList<CardInfo>.Operation op, int itemIndex, CardInfo oldItem, CardInfo newItem)
     {
-        string playerId = netIdentity.netId.ToString();
-  //      Debug.Log($"Player {playerId}: OnHandChanged. Operation: {op}, Index: {itemIndex}, hand count: {hand.Count}");
-        enemyHandCount = hand.Count;
+        if (isServer) enemyHandCount = hand.Count;
+
         if (isLocalPlayer && Player.gameManager?.playerHand != null)
         {
-   //         Debug.Log($"Player {playerId}: Updating local playerHand UI.");
             Player.gameManager.playerHand.UpdateHandCardsLocal();
         }
     }
@@ -104,28 +114,37 @@ public class Deck : NetworkBehaviour
         CmdLoadDeck();
     }
 
+    private bool deckLoaded = false;
+    private bool initialCardsDrawn = false;
+
     [Command]
     public void CmdLoadDeck()
     {
+        ServerLoadDeck();
+    }
+
+    [Server]
+    public void ServerLoadDeck()
+    {
+        if (deckLoaded)
+        {
+            Debug.LogWarning($"CmdLoadDeck rejected: deck already loaded for {player?.username}.");
+            return;
+        }
+        deckLoaded = true;
+
         string playerId = netIdentity.netId.ToString();
 
-        // Clear existing cards
         deckList.Clear();
-   //     Debug.Log($"Player {playerId}: Deck cleared. Initial deckList count: {deckList.Count}");
 
-        // Log startingDeck details
-   //     Debug.Log($"Player {playerId}: startingDeck has {startingDeck.Length} entries");
         int totalCards = 0;
         for (int i = 0; i < startingDeck.Length; ++i)
         {
             CardAndAmount card = startingDeck[i];
             string cardName = card.card != null ? card.card.name : "null";
-    //        Debug.Log($"Player {playerId}: Card {i} - Name: {cardName}, Amount: {card.amount}");
             totalCards += card.amount;
         }
-    //    Debug.Log($"Player {playerId}: Expected total cards from startingDeck: {totalCards}");
 
-        // Add all cards
         for (int i = 0; i < startingDeck.Length; ++i)
         {
             CardAndAmount card = startingDeck[i];
@@ -134,11 +153,8 @@ public class Deck : NetworkBehaviour
                 deckList.Add(new CardInfo(card.card));
             }
         }
-   //     Debug.Log($"Player {playerId}: Cards added to deckList. Total deckList count: {deckList.Count}");
 
-        // Shuffle the deck
         deckList.Shuffle();
-   //     Debug.Log($"Player {playerId}: Deck shuffled.");
     }
     #endregion
 
@@ -146,48 +162,41 @@ public class Deck : NetworkBehaviour
     [Command]
     public void CmdDrawInitialCards()
     {
-        string playerId = netIdentity.netId.ToString();
-    //    Debug.Log($"Player {playerId}: CmdDrawInitialCards called. deckList count: {deckList.Count}, hand count: {hand.Count}, connectionToClient: {(connectionToClient != null ? connectionToClient.identity.netId.ToString() : "null")}");
-        hand.Clear();
-        for (int i = 0; i < 7 && deckList.Count > 0; i++)
-        {
-            CardInfo drawnCard = deckList[0];
-            hand.Add(drawnCard);
-            deckList.RemoveAt(0);
-            
-            TargetAddCardToHand(connectionToClient, i, drawnCard);
-        }
-   //     Debug.Log($"Player {playerId}: CmdDrawInitialCards finished. hand count: {hand.Count}, deckList count: {deckList.Count}");
+        ServerDrawInitialCards();
     }
 
-    [TargetRpc]
-    private void TargetAddCardToHand(NetworkConnection target, int index, CardInfo card)
+    [Server]
+    public void ServerDrawInitialCards()
     {
-        string playerId = netIdentity.netId.ToString();
-    //    Debug.Log($"Player {playerId}: TargetAddCardToHand called. Index: {index},  GameManager: {(Player.gameManager != null ? "set" : "null")}, playerHand: {(Player.gameManager?.playerHand != null ? "set" : "null")}");
-        if (Player.gameManager == null || Player.gameManager.playerHand == null)
+        if (initialCardsDrawn)
         {
-    //        Debug.LogError($"Player {playerId}: TargetAddCardToHand failed: GameManager or playerHand is null.");
+            Debug.LogWarning($"CmdDrawInitialCards rejected: opening hand already drawn for {player?.username}.");
             return;
         }
-        Player.gameManager.playerHand.AddCard(index);
+        initialCardsDrawn = true;
+
+        hand.Clear();
+        for (int i = 0; i < handSize && deckList.Count > 0; i++)
+        {
+            hand.Add(deckList[0]);
+            deckList.RemoveAt(0);
+        }
+
+        Debug.Log($"CmdDrawInitialCards: {player?.username} drew {hand.Count} cards, {deckList.Count} left in deck.");
     }
 
-    [Command]
-    public void CmdDrawCards(int amount)
+    [Server]
+    public void ServerDrawCards(int amount)
     {
+        int drawn = 0;
         for (int i = 0; i < amount && deckList.Count > 0; i++)
         {
-            // Get top card
-            CardInfo drawnCard = deckList[0];
-
-            // Add to hand and remove from deck
-            hand.Add(drawnCard);
+            hand.Add(deckList[0]);
             deckList.RemoveAt(0);
-
-            // Update specific client
-            TargetAddCardToHand(connectionToClient, hand.Count - 1, drawnCard);
+            drawn++;
         }
+
+        Debug.Log($"ServerDrawCards: {player?.username} drew {drawn}, hand now {hand.Count}, {deckList.Count} left in deck.");
     }
 
     #endregion
@@ -200,9 +209,43 @@ public class Deck : NetworkBehaviour
     }
 
     [Command]
-    public void CmdPlayCard(CardInfo card, int index)
+    public void CmdPlayCard(int index)
     {
-        CreatureCard creature = (CreatureCard)card.data;
+        ServerPlayCard(index);
+    }
+
+    [Server]
+    public void ServerPlayCard(int index)
+    {
+        GameManager gm = FindFirstObjectByType<GameManager>();
+        if (gm == null || !gm.IsTurnOf(player))
+        {
+            Debug.LogWarning($"CmdPlayCard rejected: not {player?.username}'s turn.");
+            return;
+        }
+
+        if (index < 0 || index >= hand.Count)
+        {
+            Debug.LogWarning($"CmdPlayCard rejected: index {index} out of range (hand {hand.Count}).");
+            return;
+        }
+
+        CardInfo card = hand[index];
+        if (!(card.data is CreatureCard creature))
+        {
+            Debug.LogWarning($"CmdPlayCard rejected: card at {index} is not a creature.");
+            return;
+        }
+
+        int manaCost = card.data.cost;
+        if (!CanPlayCard(manaCost))
+        {
+            Debug.LogWarning($"CmdPlayCard rejected: {player.username} has {player.mana} mana, needs {manaCost}.");
+            return;
+        }
+
+        player.combat.ServerChangeMana(-manaCost);
+
         GameObject boardCard = Instantiate(creature.cardPrefab.gameObject);
         FieldCard newCard = boardCard.GetComponent<FieldCard>();
         newCard.card = new CardInfo(card.data);
@@ -213,7 +256,6 @@ public class Deck : NetworkBehaviour
         newCard.image.color = Color.white;
         newCard.owner = player;
 
-        // Set taunt property
         newCard.taunt = creature.hasTaunt;
         if (creature.hasTaunt)
         {
@@ -236,35 +278,17 @@ public class Deck : NetworkBehaviour
     public void RpcPlayCard(GameObject boardCard, int index)
     {
         string playerId = netIdentity.netId.ToString();
-   //     Debug.Log($"Player {playerId}: RpcPlayCard called. Index: {index}, isSpawning: {Player.gameManager.isSpawning}, hasEnemy: {player.hasEnemy}, isLocalPlayer: {isLocalPlayer}");
         if (Player.gameManager.isSpawning && isLocalPlayer)
         {
             boardCard.GetComponent<FieldCard>().casterType = Target.FRIENDLIES;
             boardCard.transform.SetParent(Player.gameManager.playerField.content, false);
-            // Remove explicit RemoveCard call; rely on OnHandChanged
-       //    Debug.Log($"Player {playerId}: RpcPlayCard: Skipping explicit RemoveCard; OnHandChanged will update UI.");
             Player.gameManager.isSpawning = false;
         }
         else if (player.hasEnemy && !isLocalPlayer)
         {
             boardCard.GetComponent<FieldCard>().casterType = Target.ENEMIES;
             boardCard.transform.SetParent(Player.gameManager.enemyField.content, false);
-      //      Debug.Log($"Player {playerId}: RpcPlayCard: Enemy card played; UpdateHandCards will handle UI.");
         }
     }
     #endregion
-
-    #region Turn 
-    [Command]
-    public void CmdStartNewTurn()
-    {
-        if (player.mana < player.maxMana)
-        {
-            player.currentMax++;
-            player.mana = player.currentMax;
-            Debug.LogError("Here");
-        }
-    }
-    #endregion
-
 }

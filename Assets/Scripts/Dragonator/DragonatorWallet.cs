@@ -36,8 +36,18 @@ public class DragonatorWallet : NetworkBehaviour
              "until session-token reconnect exists. Set 0 to forfeit immediately.")]
     [SerializeField] private float forfeitGraceSeconds = 5f;
 
+    [Header("Testing")]
+    [Tooltip("Starts the match immediately with no stakes collected and no payouts sent. " +
+             "Lets the card game be play-tested without an XST daemon. Editor and " +
+             "development builds only — forced off in a release build.")]
+    [SerializeField] private bool skipFunding = false;
+
+    [Tooltip("Seconds to wait for both clients to load the match scene when skipFunding is on.")]
+    [SerializeField] private float skipFundingReadyTimeout = 15f;
+
     public decimal BetAmount { get; private set; }
     public int RequiredConfirmations => requiredConfirmations;
+    public bool SkipFunding => skipFunding;
 
     [SyncVar(hook = nameof(OnPlayer1StatusChanged))] private string player1Status = "";
     [SyncVar(hook = nameof(OnPlayer2StatusChanged))] private string player2Status = "";
@@ -89,6 +99,18 @@ public class DragonatorWallet : NetworkBehaviour
             Debug.LogWarning("[DragonatorWallet] A second instance appeared — the newest one wins.");
         Instance = this;
 
+#if !UNITY_EDITOR && !DEVELOPMENT_BUILD
+        if (skipFunding)
+        {
+            skipFunding = false;
+            Debug.LogError("[DragonatorWallet] skipFunding is not allowed in a release build — " +
+                           "funding has been forced back on.");
+        }
+#endif
+        if (skipFunding)
+            Debug.LogWarning("[DragonatorWallet] skipFunding is ON — matches start with no stake " +
+                             "and no payout or refund will ever be sent. Never ship this enabled.");
+
         if (!decimal.TryParse(betAmountXst, NumberStyles.Number, CultureInfo.InvariantCulture,
                               out decimal parsed) || parsed <= 0m)
         {
@@ -133,6 +155,17 @@ public class DragonatorWallet : NetworkBehaviour
     {
         var orphaned = ledger.GetOrphanedFundings();
         if (orphaned.Count == 0) yield break;
+
+        if (skipFunding)
+        {
+            Debug.LogError($"[DragonatorWallet] {orphaned.Count} real unsettled stake(s) from a " +
+                           "previous run are owed refunds, but skipFunding is on so nothing was sent. " +
+                           "They stay in the ledger — restart with skipFunding OFF to settle them.");
+            foreach (var f in orphaned)
+                Debug.LogError($"[DragonatorWallet] OWED: {f.amount} XST -> {f.payoutAddress} " +
+                               $"(match {f.matchId}, conn {f.connectionId}).");
+            yield break;
+        }
 
         Debug.LogWarning($"[DragonatorWallet] Found {orphaned.Count} unsettled stake(s) from a " +
                          "previous run — refunding.");
@@ -229,6 +262,21 @@ public class DragonatorWallet : NetworkBehaviour
             if (betInfos.TryGetValue(conn, out var early)) early.sceneReady = true;
         earlyReadyConnections.Clear();
 
+        if (skipFunding)
+        {
+            fundingActive = false;
+            fundingDeadline = 0;
+
+            Debug.LogWarning($"[DragonatorWallet] Match {matchId}: skipFunding is ON — collecting " +
+                             $"no stakes from {betInfos.Count} player(s) and starting immediately.");
+
+            foreach (var info in betInfos.Values)
+                SetStatus(info, "<color=#FFAA00>No stake (test mode)</color>");
+
+            StartCoroutine(SkipFundingThenBeginMatch());
+            return;
+        }
+
         fundingActive = true;
         fundingDeadline = NetworkTime.time + fundingTimeoutSeconds;
 
@@ -254,6 +302,34 @@ public class DragonatorWallet : NetworkBehaviour
                 BetAmount.ToString(CultureInfo.InvariantCulture),
                 requiredConfirmations);
         }
+    }
+
+    [Server]
+    private bool AllSceneReady()
+    {
+        if (betInfos.Count == 0) return false;
+        foreach (var info in betInfos.Values)
+            if (!info.sceneReady) return false;
+        return true;
+    }
+
+    [Server]
+    private IEnumerator SkipFundingThenBeginMatch()
+    {
+        float deadline = Time.realtimeSinceStartup + skipFundingReadyTimeout;
+
+        while (Time.realtimeSinceStartup < deadline)
+        {
+            if (AllSceneReady() && SlotInfo(1)?.conn?.identity != null) break;
+            yield return new WaitForSeconds(0.25f);
+        }
+
+        if (!AllSceneReady())
+            Debug.LogWarning("[DragonatorWallet] skipFunding: not every client reported scene-ready " +
+                             $"within {skipFundingReadyTimeout}s — starting anyway.");
+
+        RpcSkipFundingNotice();
+        BeginMatch();
     }
 
     [Command(requiresAuthority = false)]
@@ -450,7 +526,12 @@ public class DragonatorWallet : NetworkBehaviour
         return true;
     }
 
-    public bool BothPlayersValidated() => AllFunded();
+    public bool BothPlayersValidated()
+    {
+        if (skipFunding) return true;
+        if (!NetworkServer.active) return false;
+        return AllFunded();
+    }
 
     [Server]
     private void BeginMatch()
@@ -460,9 +541,14 @@ public class DragonatorWallet : NetworkBehaviour
         fundingActive = false;
         fundingDeadline = 0;
 
-        Debug.Log($"[DragonatorWallet] Match {matchId}: both players funded — starting.");
-
-        ledger.RecordMatchState(matchId, BetLedger.MatchPlaying);
+        if (skipFunding)
+            Debug.LogWarning($"[DragonatorWallet] Match {matchId}: starting unfunded (skipFunding) — " +
+                             "nothing written to the ledger.");
+        else
+        {
+            Debug.Log($"[DragonatorWallet] Match {matchId}: both players funded — starting.");
+            ledger.RecordMatchState(matchId, BetLedger.MatchPlaying);
+        }
 
         RpcHideStatusDisplay();
 
@@ -627,6 +713,13 @@ public class DragonatorWallet : NetworkBehaviour
     [Server]
     public void PayWinner(NetworkConnectionToClient winnerConn)
     {
+        if (skipFunding)
+        {
+            Debug.LogWarning($"[DragonatorWallet] Match {matchId} won, but skipFunding was on — " +
+                             "there is no pot to pay out.");
+            return;
+        }
+
         if (winnerConn == null || !betInfos.TryGetValue(winnerConn, out var winner))
         {
             Debug.LogError("[DragonatorWallet] PayWinner: unknown winner connection — no payout sent.");
@@ -658,6 +751,13 @@ public class DragonatorWallet : NetworkBehaviour
     private IEnumerator SendFunds(string sendMatchId, string kind, int connectionId,
                                   string address, decimal amount, PlayerBetInfo notify)
     {
+        if (skipFunding)
+        {
+            Debug.LogWarning($"[DragonatorWallet] {kind} of {amount} XST to {address} suppressed " +
+                             "because skipFunding is on.");
+            yield break;
+        }
+
         if (string.IsNullOrEmpty(address) || amount <= 0m)
         {
             Debug.LogError($"[DragonatorWallet] {kind} skipped for match {sendMatchId}: " +
@@ -817,10 +917,11 @@ public class DragonatorWallet : NetworkBehaviour
     {
         BetUI.Instance?.ShowStatusDisplay();
     }
-}
 
-public class RpcResponse
-{
-    public string result;
-    public object error;
+    [ClientRpc]
+    private void RpcSkipFundingNotice()
+    {
+        Debug.LogWarning("[DragonatorWallet] Test mode — no stake was taken and no winnings will be paid.");
+        BetUI.Instance?.HideBetUI();
+    }
 }

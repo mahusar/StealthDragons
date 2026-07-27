@@ -36,16 +36,6 @@ public partial class CreatureCard : ScriptableCard
             return;
         }
 
-        Combat attackerCombat = attacker.GetComponent<Combat>();
-        Combat targetCombat = target.GetComponent<Combat>();
-
-        if (attackerCombat == null || targetCombat == null)
-        {
-            Debug.LogError("Attack: Combat component missing on attacker or target!");
-            return;
-        }
-
-        // Check taunt restriction
         PlayerInfo opponentInfo = attacker.owner.hasEnemy ? attacker.owner.enemyInfo : default;
         bool hasTauntCreatures = opponentInfo.player != null && opponentInfo.tauntCount > 0;
         if (hasTauntCreatures && target is Player)
@@ -54,12 +44,8 @@ public partial class CreatureCard : ScriptableCard
             return;
         }
 
-        // Proceed with attack
-        attackerCombat.CmdAnimateAttack(attacker.gameObject, target.gameObject, attacker.strength, target.strength);
-        targetCombat.CmdChangeHealth(-attacker.strength);
-        attackerCombat.CmdChangeHealth(-target.strength);
+        Player.localPlayer.CmdRequestAttack(attacker.netId, target.netId);
 
         attacker.DestroyTargetingArrow();
-        attackerCombat.CmdIncreaseWaitTurn();
     }
 }

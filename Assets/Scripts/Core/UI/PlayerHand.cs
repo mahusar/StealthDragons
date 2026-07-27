@@ -29,7 +29,6 @@ public class PlayerHand : MonoBehaviour
             player.deck.spawnInitialCards = false;
         }
 
-        // Wait until enemy is actually found, not just 1 second
         if (playerType == PlayerType.ENEMY)
         {
             while (!player.hasEnemy)
@@ -78,13 +77,10 @@ public class PlayerHand : MonoBehaviour
         }
     }
 
-
-    //Draw start
     void DrawCards()
     {
         if (playerType == PlayerType.PLAYER && player != null && player.isLocalPlayer)
         {
-            // Only draw if we haven't drawn initial cards yet
             if (player.deck.spawnInitialCards)
             {
                 player.deck.CmdDrawInitialCards();
@@ -92,9 +88,14 @@ public class PlayerHand : MonoBehaviour
             }
         }
     }
+    public bool IsReady => player != null && player.deck != null;
+
     public void UpdateHandCardsLocal()
     {
-        if (playerType != PlayerType.PLAYER || !player.isLocalPlayer)
+        if (playerType != PlayerType.PLAYER)
+            return;
+
+        if (player == null || player.deck == null || !player.isLocalPlayer)
             return;
 
         Debug.Log($"PlayerHand.UpdateHandCardsLocal: Updating local hand. hand count: {player.deck.hand.Count}");
@@ -104,35 +105,6 @@ public class PlayerHand : MonoBehaviour
             HandCard slot = handContent.GetChild(i).GetComponent<HandCard>();
             slot.AddCard(player.deck.hand[i], i, playerType);
         }
-    }
-
-    //Draw turn
-    public void DrawTurnCard()
-    {
-        if (playerType == PlayerType.PLAYER && player != null)
-        {
-            player.deck.CmdDrawCards(1);
-        }
-    }
-
-    public void AddCard(int index)
-    {
-        // Only proceed if this is the local player's hand
-        if (playerType != PlayerType.PLAYER || !player.isLocalPlayer)
-            return;
-
-        if (player == null || player.deck == null || index >= player.deck.hand.Count)
-        {
-            Debug.LogWarning($"Cannot add card at index {index}");
-            return;
-        }
-
-        GameObject cardObj = Instantiate(cardPrefab.gameObject);
-        cardObj.transform.SetParent(handContent, false);
-
-        CardInfo card = player.deck.hand[index];
-        HandCard slot = cardObj.GetComponent<HandCard>();
-        slot.AddCard(card, index, playerType);
     }
 
     public void RemoveCard(int index)
@@ -148,7 +120,6 @@ public class PlayerHand : MonoBehaviour
         slot.RemoveCard();
         Debug.Log($"PlayerHand.RemoveCard: Removed card at index {index}");
 
-        // Update handIndex for subsequent cards
         for (int i = index + 1; i < handContent.childCount; ++i)
         {
             HandCard nextSlot = handContent.GetChild(i).GetComponent<HandCard>();
@@ -173,8 +144,6 @@ public class PlayerHand : MonoBehaviour
             }
         }
     }
-
-    // bool IsEnemyHand() => player && player.hasEnemy && player.deck.hand.Count == 7 && playerType == PlayerType.ENEMY && enemyInfo.handCount != cardCount;
 
     bool IsEnemyHand() => player && player.hasEnemy && playerType == PlayerType.ENEMY;
     bool IsPlayerHand() => player && player.deck.spawnInitialCards && playerType == PlayerType.PLAYER;

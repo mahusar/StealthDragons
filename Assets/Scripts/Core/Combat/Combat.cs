@@ -22,12 +22,12 @@ public class Combat : NetworkBehaviour
         }
     }
 
-    [Command(requiresAuthority = false)]
-    public void CmdChangeHealth(int amount)
+    [Server]
+    public void ServerChangeHealth(int amount)
     {
         if (entity == null || entity.gameObject == null)
         {
-            Debug.LogError($"CmdChangeHealth: Entity is null or destroyed on {gameObject.name}");
+            Debug.LogError($"ServerChangeHealth: Entity is null or destroyed on {gameObject.name}");
             return;
         }
 
@@ -35,11 +35,11 @@ public class Combat : NetworkBehaviour
         int newHealth = entity.health + amount;
         bool shouldDestroy = newHealth <= 0;
         entity.health = Mathf.Max(0, newHealth);
-        Debug.Log($"CmdChangeHealth: Health changed by {amount} for {entity.gameObject.name} (netId: {entity.GetComponent<NetworkIdentity>()?.netId}). Old health: {oldHealth}, New health: {entity.health}");
+        Debug.Log($"ServerChangeHealth: Health changed by {amount} for {entity.gameObject.name} (netId: {entity.GetComponent<NetworkIdentity>()?.netId}). Old health: {oldHealth}, New health: {entity.health}");
 
-        if (shouldDestroy && isServer)
+        if (shouldDestroy)
         {
-            Debug.Log($"CmdChangeHealth: {entity.gameObject.name} health <= 0. Initiating destruction.");
+            Debug.Log($"ServerChangeHealth: {entity.gameObject.name} health <= 0. Initiating destruction.");
             if (entity is FieldCard fieldCard)
             {
                 if (fieldCard.owner != null && fieldCard.owner.deck != null && !string.IsNullOrEmpty(fieldCard.card.name))
@@ -57,13 +57,13 @@ public class Combat : NetworkBehaviour
                 }
                 else
                 {
-                    Debug.LogError($"CmdChangeHealth: FieldCard {fieldCard.gameObject.name} has invalid owner: {fieldCard.owner}, deck: {fieldCard.owner?.deck}, or card name: {fieldCard.card.name}. Destroying directly.");
+                    Debug.LogError($"ServerChangeHealth: FieldCard {fieldCard.gameObject.name} has invalid owner: {fieldCard.owner}, deck: {fieldCard.owner?.deck}, or card name: {fieldCard.card.name}. Destroying directly.");
                     NetworkServer.Destroy(fieldCard.gameObject);
                 }
             }
             else if (entity is Player player)
             {
-                Debug.Log($"CmdChangeHealth: Player {player.username} defeated!");
+                Debug.Log($"ServerChangeHealth: Player {player.username} defeated!");
                 GameManager gameManager = FindFirstObjectByType<GameManager>();
                 DragonatorWallet wallet = FindFirstObjectByType<DragonatorWallet>();
 
@@ -78,10 +78,8 @@ public class Combat : NetworkBehaviour
                         {
                             gameManager.RecordGameOutcome(p, true);
 
-                            // Pay winner before destroying anything
                             if (wallet != null)
                             {
-                                // Find winner's connection
                                 foreach (var conn in NetworkServer.connections.Values)
                                 {
                                     Player connPlayer = conn.identity?.GetComponent<Player>();
@@ -102,7 +100,6 @@ public class Combat : NetworkBehaviour
                     }
                 }
 
-                // Delay destruction so coroutines referencing this object can finish cleanly
                 StartCoroutine(DestroyPlayerAfterDelay(entity.gameObject));
             }
         }
@@ -114,62 +111,61 @@ public class Combat : NetworkBehaviour
             NetworkServer.Destroy(playerObj);
     }
 
-    // Existing methods (CmdChangeMana, CmdChangeStrength, etc.) remain unchanged
-    [Command(requiresAuthority = false)]
-    public void CmdChangeMana(int amount)
+    [Server]
+    public void ServerChangeMana(int amount)
     {
         if (entity == null)
         {
-            Debug.LogError($"CmdChangeMana: Entity is null on {gameObject.name}");
+            Debug.LogError($"ServerChangeMana: Entity is null on {gameObject.name}");
             return;
         }
         if (entity is Player player)
         {
             player.mana += amount;
-            Debug.Log($"CmdChangeMana: Mana changed by {amount} for {player.gameObject.name}. New mana: {player.mana}");
+            Debug.Log($"ServerChangeMana: Mana changed by {amount} for {player.gameObject.name}. New mana: {player.mana}");
         }
         else
         {
-            Debug.LogError($"CmdChangeMana: Entity is not a Player on {gameObject.name}");
+            Debug.LogError($"ServerChangeMana: Entity is not a Player on {gameObject.name}");
         }
     }
 
-    [Command(requiresAuthority = false)]
-    public void CmdChangeStrength(int amount)
+    [Server]
+    public void ServerChangeStrength(int amount)
     {
         if (entity == null)
         {
-            Debug.LogError($"CmdChangeStrength: Entity is null on {gameObject.name}");
+            Debug.LogError($"ServerChangeStrength: Entity is null on {gameObject.name}");
             return;
         }
         entity.strength += amount;
-        Debug.Log($"CmdChangeStrength: Strength changed by {amount} for {entity.gameObject.name}. New strength: {entity.strength}");
+        Debug.Log($"ServerChangeStrength: Strength changed by {amount} for {entity.gameObject.name}. New strength: {entity.strength}");
     }
 
-    [Command(requiresAuthority = false)]
-    public void CmdIncreaseWaitTurn()
+    [Server]
+    public void ServerIncreaseWaitTurn()
     {
         if (entity == null)
         {
-            Debug.LogError($"CmdIncreaseWaitTurn: Entity is null on {gameObject.name}");
+            Debug.LogError($"ServerIncreaseWaitTurn: Entity is null on {gameObject.name}");
             return;
         }
         entity.waitTurn++;
-        Debug.Log($"CmdIncreaseWaitTurn: WaitTurn incremented for {entity.gameObject.name}. New waitTurn: {entity.waitTurn}");
+        Debug.Log($"ServerIncreaseWaitTurn: WaitTurn incremented for {entity.gameObject.name}. New waitTurn: {entity.waitTurn}");
     }
 
-    [Command(requiresAuthority = false)]
-    public void CmdAnimateAttack(GameObject attackerObj, GameObject targetObj, int attackerStrength, int targetStrength)
+    [Server]
+    public void ServerResolveAttack(GameObject attackerObj, GameObject targetObj)
     {
         if (attackerObj == null || targetObj == null)
         {
-            Debug.LogError($"CmdAnimateAttack: Attacker ({attackerObj}) or Target ({targetObj}) is null!");
+            Debug.LogError($"ServerResolveAttack: Attacker ({attackerObj}) or Target ({targetObj}) is null!");
             return;
         }
 
         if (!attackerObj.activeInHierarchy || !targetObj.activeInHierarchy)
         {
-            Debug.LogError($"CmdAnimateAttack: Attacker ({attackerObj?.name}) or Target ({targetObj?.name}) is inactive!");
+            Debug.LogError($"ServerResolveAttack: Attacker ({attackerObj?.name}) or Target ({targetObj?.name}) is inactive!");
             return;
         }
 
@@ -177,7 +173,7 @@ public class Combat : NetworkBehaviour
         NetworkIdentity targetIdentity = targetObj.GetComponent<NetworkIdentity>();
         if (attackerIdentity == null || targetIdentity == null)
         {
-            Debug.LogError($"CmdAnimateAttack: NetworkIdentity missing on Attacker ({attackerObj?.name}) or Target ({targetObj?.name})!");
+            Debug.LogError($"ServerResolveAttack: NetworkIdentity missing on Attacker ({attackerObj?.name}) or Target ({targetObj?.name})!");
             return;
         }
 
@@ -185,33 +181,24 @@ public class Combat : NetworkBehaviour
         Entity targetEntity = targetObj.GetComponent<Entity>();
         if (attackerEntity == null || targetEntity == null)
         {
-            Debug.LogError($"CmdAnimateAttack: Entity component missing. Attacker: {attackerEntity}, Target: {targetEntity}");
+            Debug.LogError($"ServerResolveAttack: Entity component missing. Attacker: {attackerEntity}, Target: {targetEntity}");
             return;
         }
-        if (attackerStrength <= 0 || targetStrength < 0)
-        {
-            Debug.LogWarning($"CmdAnimateAttack: Invalid strength. Attacker: {attackerStrength}, Target: {targetStrength}. Using entity values.");
-            attackerStrength = Mathf.Max(0, attackerEntity.strength);
-            targetStrength = Mathf.Max(0, targetEntity.strength);
-        }
-        else if (attackerStrength != attackerEntity.strength || targetStrength != targetEntity.strength)
-        {
-            Debug.LogWarning($"CmdAnimateAttack: Strength mismatch. Attacker: {attackerStrength} vs {attackerEntity.strength}, Target: {targetStrength} vs {targetEntity.strength}. Using entity values.");
-            attackerStrength = attackerEntity.strength;
-            targetStrength = targetEntity.strength;
-        }
 
-        Debug.Log($"CmdAnimateAttack: Initiating attack from {attackerObj.name} (strength: {attackerStrength}) to {targetObj.name} (strength: {targetStrength})");
+        int attackerStrength = Mathf.Max(0, attackerEntity.strength);
+        int targetStrength = Mathf.Max(0, targetEntity.strength);
+
+        Debug.Log($"ServerResolveAttack: {attackerObj.name} (strength: {attackerStrength}) attacks {targetObj.name} (strength: {targetStrength})");
 
         RpcAnimateAttack(attackerIdentity.netId, targetIdentity.netId);
 
         CardAnimator animator = attackerObj.GetComponent<CardAnimator>();
-        float totalDuration = animator != null
-            ? animator.moveDuration + animator.attackPause + animator.returnDuration + 1.0f
-            : 2.0f;
-        Debug.Log($"CmdAnimateAttack: Animation duration set to {totalDuration}s");
+        float impactDelay = animator != null
+            ? animator.moveDuration + animator.attackPause
+            : 0.7f;
+        Debug.Log($"ServerResolveAttack: damage lands at impact in {impactDelay}s");
 
-        StartCoroutine(ApplyDamageAfterAnimation(attackerObj, targetObj, attackerStrength, targetStrength, totalDuration));
+        StartCoroutine(ApplyDamageAfterAnimation(attackerObj, targetObj, attackerStrength, targetStrength, impactDelay));
     }
 
     [ClientRpc]
@@ -281,8 +268,8 @@ public class Combat : NetworkBehaviour
 
         Debug.Log($"ApplyDamageAfterAnimation: Applying damage. {attackerObj.name} deals {attackerStrength} to {targetObj.name}, {targetObj.name} deals {targetStrength} to {attackerObj.name}");
 
-        targetCombat.CmdChangeHealth(-attackerStrength);
-        attackerCombat.CmdChangeHealth(-targetStrength);
+        targetCombat.ServerChangeHealth(-attackerStrength);
+        attackerCombat.ServerChangeHealth(-targetStrength);
     }
 
     private IEnumerator DestroyCardAfterAnimation(GameObject cardObject)
@@ -302,8 +289,8 @@ public class Combat : NetworkBehaviour
 
         CardAnimator animator = cardObject.GetComponent<CardAnimator>();
         float animationDuration = animator != null
-            ? animator.moveDuration + animator.attackPause + animator.returnDuration + 0.5f
-            : 1.0f;
+            ? animator.returnDuration + 0.1f
+            : 0.4f;
         Debug.Log($"DestroyCardAfterAnimation: Waiting for {animationDuration}s before destroying {cardObject.name}");
 
         yield return new WaitForSeconds(animationDuration);
@@ -315,6 +302,7 @@ public class Combat : NetworkBehaviour
         }
 
         Debug.Log($"DestroyCardAfterAnimation: Destroying {cardObject.name} with netId {cardIdentity.netId}");
+        DG.Tweening.DOTween.Kill(cardObject.transform);
         RpcDestroyCard(cardIdentity.netId);
         NetworkServer.Destroy(cardObject);
     }
@@ -330,6 +318,9 @@ public class Combat : NetworkBehaviour
 
         GameObject cardObject = NetworkClient.spawned[cardNetId].gameObject;
         Debug.Log($"RpcDestroyCard: Deactivating {cardObject.name} on client");
+
+        DG.Tweening.DOTween.Kill(cardObject.transform);
+
         if (Player.gameManager != null)
         {
             cardObject.transform.SetParent(null);

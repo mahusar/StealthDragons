@@ -29,6 +29,18 @@ public class GameManager : NetworkBehaviour
     [HideInInspector] public bool isOurTurn = false;
     [SyncVar, HideInInspector] public int turnCount = 1;
 
+    [SyncVar(hook = nameof(OnTurnOwnerChanged)), HideInInspector] public uint currentTurnNetId;
+
+    [SyncVar, HideInInspector] public bool practiceMode = false;
+
+    [Server]
+    public bool IsTurnOf(Player player) =>
+        player != null && currentTurnNetId != 0 && player.netId == currentTurnNetId;
+
+    [Server]
+    public bool IsTurnOf(NetworkConnectionToClient conn) =>
+        conn?.identity != null && IsTurnOf(conn.identity.GetComponent<Player>());
+
     [HideInInspector] public bool isHovering = false;
     [HideInInspector] public bool isHoveringField = false;
     [HideInInspector] public bool isSpawning = false;
@@ -94,17 +106,65 @@ public class GameManager : NetworkBehaviour
     [Server]
     public void StartGameForPlayer(NetworkIdentity firstPlayerIdentity)
     {
-        // Guard: don't start unless bets are validated
-        DragonatorWallet wallet = FindAnyObjectByType<DragonatorWallet>();
-        if (wallet == null || !wallet.BothPlayersValidated())
+        if (practiceMode)
         {
-            Debug.LogWarning("GameManager: Cannot start — bets not validated yet.");
+            Debug.LogWarning("GameManager: starting a PRACTICE match — no stake, no payout.");
+        }
+        else
+        {
+            DragonatorWallet wallet = FindAnyObjectByType<DragonatorWallet>();
+            if (wallet == null || !wallet.BothPlayersValidated())
+            {
+                Debug.LogWarning("GameManager: Cannot start — bets not validated yet.");
+                return;
+            }
+        }
+
+        if (currentTurnNetId != 0)
+        {
+            Debug.LogWarning("GameManager: StartGameForPlayer called twice — ignoring.");
             return;
         }
 
         Debug.Log("GameManager: StartGameForPlayer called on server.");
         turnCount = 1;
+
+        Player first = firstPlayerIdentity != null ? firstPlayerIdentity.GetComponent<Player>() : null;
+        if (first == null)
+        {
+            Debug.LogError("GameManager: first player identity has no Player component.");
+            return;
+        }
+
+        ServerBeginTurnFor(first);
         RpcStartGame(firstPlayerIdentity);
+    }
+
+    [Server]
+    private void ServerBeginTurnFor(Player player)
+    {
+        currentTurnNetId = player.netId;
+
+        if (player.mana < player.maxMana)
+        {
+            player.currentMax++;
+            player.mana = player.currentMax;
+        }
+
+        foreach (FieldCard card in FindObjectsByType<FieldCard>(FindObjectsSortMode.None))
+            if (card.owner == player) card.ServerBeginTurn();
+
+        if (player.deck != null) player.deck.ServerDrawCards(1);
+
+        Debug.Log($"GameManager: Turn {turnCount} begins for {player.username} (mana {player.mana}).");
+    }
+
+    [Server]
+    private Player ServerFindOpponentOf(Player player)
+    {
+        foreach (Player p in FindObjectsByType<Player>(FindObjectsSortMode.None))
+            if (p != player && p.health > 0) return p;
+        return null;
     }
 
     [ClientRpc]
@@ -124,104 +184,139 @@ public class GameManager : NetworkBehaviour
             return;
         }
 
-        bool isFirstPlayer = Player.localPlayer.netIdentity == firstPlayerIdentity;
-        isOurTurn = isFirstPlayer;
+        RefreshTurnUI();
+        Debug.Log($"GameManager: Game started for {Player.localPlayer.username}, isOurTurn: {isOurTurn}, mana: {Player.localPlayer.mana}");
+    }
 
-        if (isFirstPlayer)
-        {
-            endTurnButton.SetActive(true);
-            StartCoroutine(TurnStartSequence()); // Auto-start first turn
-            Debug.Log($"GameManager: Game started for {Player.localPlayer.username}, endTurnButton active, mana: {Player.localPlayer.mana}");
-        }
-        else
-        {
-            endTurnButton.SetActive(false);
-            Debug.Log($"GameManager: {Player.localPlayer.username} is not first player, endTurnButton inactive.");
-        }
+    private void RefreshTurnUI()
+    {
+        if (Player.localPlayer == null) return;
+
+        isOurTurn = Player.localPlayer.netId == currentTurnNetId;
+        if (endTurnButton != null) endTurnButton.SetActive(isOurTurn);
     }
 
     [Command(requiresAuthority = false)]
     public void CmdOnCardHover(float moveBy, int index)
     {
-        if (enemyHand.handContent.transform.childCount > 0 && isServer)
-            RpcCardHover(moveBy, index);
+        if (index < 0)
+        {
+            Debug.LogWarning($"GameManager: CmdOnCardHover rejected — negative index {index}.");
+            return;
+        }
+
+        RpcCardHover(moveBy, index);
     }
 
     [ClientRpc]
     public void RpcCardHover(float moveBy, int index)
     {
-        if (!isHovering)
+        if (isHovering) return;
+        if (enemyHand == null || enemyHand.handContent == null) return;
+
+        Transform content = enemyHand.handContent.transform;
+        if (index < 0 || index >= content.childCount)
         {
-            HandCard card = enemyHand.handContent.transform.GetChild(index).GetComponent<HandCard>();
-            card.transform.localPosition = new Vector2(card.transform.localPosition.x, moveBy);
+            Debug.LogWarning($"GameManager: RpcCardHover ignored — index {index} is outside the enemy hand ({content.childCount} cards).");
+            return;
         }
+
+        HandCard card = content.GetChild(index).GetComponent<HandCard>();
+        if (card == null) return;
+
+        card.transform.localPosition = new Vector2(card.transform.localPosition.x, moveBy);
     }
 
     [Command(requiresAuthority = false)]
     public void CmdOnFieldCardHover(GameObject cardObject, bool activateShine, bool targeting)
     {
-        if (isServer)
-            RpcFieldCardHover(cardObject, activateShine, targeting);
+        if (cardObject == null)
+        {
+            Debug.LogWarning("GameManager: CmdOnFieldCardHover rejected — null card object.");
+            return;
+        }
+
+        RpcFieldCardHover(cardObject, activateShine, targeting);
     }
 
     [ClientRpc]
     public void RpcFieldCardHover(GameObject cardObject, bool activateShine, bool targeting)
     {
-        if (!isHoveringField)
-        {
-            FieldCard card = cardObject.GetComponent<FieldCard>();
-            Color shine = activateShine ? card.hoverColor : Color.clear;
-            card.shine.color = targeting ? card.targetColor : shine;
-        }
+        if (isHoveringField) return;
+        if (cardObject == null) return;
+
+        FieldCard card = cardObject.GetComponent<FieldCard>();
+        if (card == null || card.shine == null) return;
+
+        Color shine = activateShine ? card.hoverColor : Color.clear;
+        card.shine.color = targeting ? card.targetColor : shine;
     }
 
-    [Command(requiresAuthority = false)]
-    public void CmdEndTurn()
+    public void OnEndTurnClicked()
     {
-        RpcSetTurn();
-    }
-
-    [ClientRpc]
-    public void RpcSetTurn()
-    {
-        if (Player.localPlayer == null || playerHand == null)
+        if (Player.localPlayer == null)
         {
+            Debug.LogWarning("GameManager: end turn clicked but there is no local player.");
             return;
         }
 
-        bool wasOurTurn = isOurTurn;
-        isOurTurn = !isOurTurn;
-        endTurnButton.SetActive(isOurTurn);
-
-        if (wasOurTurn && !isOurTurn)
+        if (Player.localPlayer.netId != currentTurnNetId)
         {
-            playerHand.ClearLocalPlayerHandOutlines();
+            Debug.LogWarning("GameManager: end turn clicked but it is not this player's turn.");
+            return;
         }
 
-        if (isOurTurn)
-        {
-            StartCoroutine(TurnStartSequence());
-        }
+        Debug.Log($"GameManager: end turn clicked by {Player.localPlayer.username}.");
+        CmdEndTurn();
     }
 
-    private IEnumerator TurnStartSequence()
+    [Command(requiresAuthority = false)]
+    public void CmdEndTurn(NetworkConnectionToClient sender = null)
     {
-        yield return null;
-
-        if (Player.gameManager.playerField != null)
+        if (!IsTurnOf(sender))
         {
-            Player.gameManager.playerField.UpdateFieldCards();
+            Debug.LogWarning($"GameManager: CmdEndTurn rejected — connection {sender?.connectionId} is not the current turn holder.");
+            return;
         }
 
-        if (Player.localPlayer.deck.deckList.Count > 0)
+        ServerEndTurn(sender.identity.GetComponent<Player>());
+    }
+
+    [Server]
+    public void ServerEndTurn(Player current)
+    {
+        if (current == null)
         {
-            playerHand.DrawTurnCard();
-        }
-        else
-        {
-            Debug.Log("Deck is empty - cannot draw card");
+            Debug.LogWarning("GameManager: ServerEndTurn called with no player.");
+            return;
         }
 
-        Player.localPlayer.deck.CmdStartNewTurn();
+        if (!IsTurnOf(current))
+        {
+            Debug.LogWarning($"GameManager: ServerEndTurn rejected — {current.username} is not the current turn holder.");
+            return;
+        }
+
+        Player next = ServerFindOpponentOf(current);
+        if (next == null)
+        {
+            Debug.LogWarning("GameManager: ServerEndTurn — no living opponent to pass the turn to.");
+            return;
+        }
+
+        turnCount++;
+        ServerBeginTurnFor(next);
+    }
+
+    private void OnTurnOwnerChanged(uint oldNetId, uint newNetId)
+    {
+        if (Player.localPlayer == null) return;
+
+        bool wasOurTurn = isOurTurn;
+        currentTurnNetId = newNetId;
+        RefreshTurnUI();
+
+        if (wasOurTurn && !isOurTurn && playerHand != null)
+            playerHand.ClearLocalPlayerHandOutlines();
     }
 }

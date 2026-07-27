@@ -11,9 +11,13 @@ public class CardAnimator : MonoBehaviour
     {
         Vector3 originalPos = attacker.position;
 
+        DOTween.Kill(attacker);
+
         Sequence attackSequence = DOTween.Sequence();
+        attackSequence.SetTarget(attacker);
+        attackSequence.SetLink(attacker.gameObject);
         attackSequence.Append(attacker.DOMove(target.position, moveDuration).SetEase(Ease.InOutSine));
-        attackSequence.AppendInterval(attackPause); // Pause at target
+        attackSequence.AppendInterval(attackPause);
         attackSequence.Append(attacker.DOMove(originalPos, returnDuration).SetEase(Ease.InOutSine));
         attackSequence.OnComplete(() => onComplete?.Invoke());
     }

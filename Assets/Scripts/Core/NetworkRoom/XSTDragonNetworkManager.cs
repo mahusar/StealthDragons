@@ -119,7 +119,15 @@ public class XSTDragonNetworkManager : NetworkRoomManager
         }
         else if (sceneName == GameplayScene)
         {
-            StartCoroutine(WaitForPlayersReadyThenInitWallet());
+            if (PracticeMode.Active)
+            {
+                Debug.LogWarning("PracticeMode is active — skipping wallet initialisation entirely.");
+                PracticeMode.Instance?.OnGameplaySceneLoaded();
+            }
+            else
+            {
+                StartCoroutine(WaitForPlayersReadyThenInitWallet());
+            }
         }
     }
 
@@ -170,6 +178,7 @@ public class XSTDragonNetworkManager : NetworkRoomManager
     public override void OnStopServer()
     {
         isHosting = false;
+        PracticeMode.Clear();
         SendToMatchmaker($"DEREGISTER|{networkAddress}|{networkPort}");
         base.OnStopServer();
         Debug.Log("Server stopped.");

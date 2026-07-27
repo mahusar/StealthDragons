@@ -4,37 +4,32 @@ using Mirror;
 
 public class FieldCard : Entity
 {
-    [SyncVar, HideInInspector] public CardInfo card; // Get card info
+    [SyncVar, HideInInspector] public CardInfo card;
 
     [Header("Card Properties")]
-    public Image image; // card image on field
-    public Text cardName; // Text of the card name
-    public Text healthText; // Text of the health
-    public Text strengthText; // Text of the strength
+    public Image image;
+    public Text cardName;
+    public Text healthText;
+    public Text strengthText;
 
     [Header("Shine")]
     public Image shine;
     public Color hoverColor;
-    public Color readyColor; // Shine color when ready to attack
-    public Color targetColor; // Shine color when ready to attack
+    public Color readyColor;
+    public Color targetColor;
 
     [Header("Card Hover")]
     public HandCard cardHover;
 
-    // Update is called once per frame
     public override void Update()
     {
         base.Update();
-        // If we have a card but no sprite, make sure the sprite is up to date since we can't SyncVar the sprite.
-        // Useful to avoid bugs when a player was offline when the card spawned, or if they reconnected.
         if (image.sprite == null && (card.name != null || cardName.text == ""))
         {
-            // Update Stats
             image.color = Color.white;
             image.sprite = card.image;
             cardName.text = card.name;
 
-            // Update card hover info
             cardHover.UpdateFieldCardInfo(card);
         }
 
@@ -45,10 +40,10 @@ public class FieldCard : Entity
         else if (CantAttack()) shine.color = Color.clear;
     }
 
-    [Command(requiresAuthority = false)]
-    public void CmdUpdateWaitTurn()
+    [Server]
+    public void ServerBeginTurn()
     {
-        Debug.LogError("Here");
         if (waitTurn > 0) waitTurn--;
+        hasAttackedThisTurn = false;
     }
 }
