@@ -39,6 +39,10 @@ public class TorTelepathyTransport : TelepathyTransport
 
         var capturedHostname = hostname;
         var capturedPort = port;
+        var capturedSocksHost = TorConfig.SocksHost;
+        var capturedSocksPort = TorConfig.SocksPort;
+
+        Debug.Log($"[Tor] Using SOCKS proxy {capturedSocksHost}:{capturedSocksPort}");
 
         var thread = new Thread(() =>
         {
@@ -46,7 +50,7 @@ public class TorTelepathyTransport : TelepathyTransport
             {
                 var tcpClient = new TcpClient();
                 var (boundAddress, boundPort) = tcpClient
-                    .ConnectThroughProxyAsync(socksHost, socksPort, capturedHostname, capturedPort)
+                    .ConnectThroughProxyAsync(capturedSocksHost, capturedSocksPort, capturedHostname, capturedPort)
                     .GetAwaiter()
                     .GetResult();
 

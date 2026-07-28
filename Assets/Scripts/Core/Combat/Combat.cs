@@ -201,11 +201,18 @@ public class Combat : NetworkBehaviour
         StartCoroutine(ApplyDamageAfterAnimation(attackerObj, targetObj, attackerStrength, targetStrength, impactDelay));
     }
 
+    private static GameObject FindSpawnedObject(uint netId)
+    {
+        if (!NetworkClient.spawned.TryGetValue(netId, out NetworkIdentity identity)) return null;
+        if (identity == null) return null;
+        return identity.gameObject;
+    }
+
     [ClientRpc]
     void RpcAnimateAttack(uint attackerNetId, uint targetNetId)
     {
-        GameObject attackerObj = NetworkClient.spawned.ContainsKey(attackerNetId) ? NetworkClient.spawned[attackerNetId].gameObject : null;
-        GameObject targetObj = NetworkClient.spawned.ContainsKey(targetNetId) ? NetworkClient.spawned[targetNetId].gameObject : null;
+        GameObject attackerObj = FindSpawnedObject(attackerNetId);
+        GameObject targetObj = FindSpawnedObject(targetNetId);
 
         if (attackerObj == null || targetObj == null)
         {
@@ -310,13 +317,13 @@ public class Combat : NetworkBehaviour
     [ClientRpc]
     void RpcDestroyCard(uint cardNetId)
     {
-        if (!NetworkClient.spawned.ContainsKey(cardNetId))
+        GameObject cardObject = FindSpawnedObject(cardNetId);
+        if (cardObject == null)
         {
-            Debug.LogWarning($"RpcDestroyCard: Card with netId {cardNetId} not found! Spawned netIds: {string.Join(", ", NetworkClient.spawned.Keys)}");
+            Debug.LogWarning($"RpcDestroyCard: Card with netId {cardNetId} not found or already destroyed. Spawned netIds: {string.Join(", ", NetworkClient.spawned.Keys)}");
             return;
         }
 
-        GameObject cardObject = NetworkClient.spawned[cardNetId].gameObject;
         Debug.Log($"RpcDestroyCard: Deactivating {cardObject.name} on client");
 
         DG.Tweening.DOTween.Kill(cardObject.transform);

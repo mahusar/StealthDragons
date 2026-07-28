@@ -4,6 +4,8 @@ using System.Collections;
 
 public class PlayerHand : MonoBehaviour
 {
+    public const float hoverLiftY = -25f;
+
     public GameObject panel;
     public HandCard cardPrefab;
     public Transform handContent;
@@ -74,6 +76,20 @@ public class PlayerHand : MonoBehaviour
             slot.AddCardBack();
             slot.handIndex = i;
             Debug.Log($"PlayerHand.UpdateHandCards: Added card back at index {i}");
+        }
+
+        SetHoveredCard(-1);
+    }
+
+    public void SetHoveredCard(int index)
+    {
+        if (handContent == null) return;
+
+        for (int i = 0; i < handContent.childCount; ++i)
+        {
+            Transform slot = handContent.GetChild(i);
+            float y = i == index ? hoverLiftY : 0f;
+            slot.localPosition = new Vector2(slot.localPosition.x, y);
         }
     }
 

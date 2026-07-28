@@ -271,24 +271,45 @@ public class Deck : NetworkBehaviour
 
         hand.RemoveAt(index);
 
-        if (isServer) RpcPlayCard(boardCard, index);
+        if (isServer) RpcPlayCard(boardCard);
     }
 
     [ClientRpc]
-    public void RpcPlayCard(GameObject boardCard, int index)
+    public void RpcPlayCard(GameObject boardCard)
     {
-        string playerId = netIdentity.netId.ToString();
-        if (Player.gameManager.isSpawning && isLocalPlayer)
+        if (boardCard == null)
         {
-            boardCard.GetComponent<FieldCard>().casterType = Target.FRIENDLIES;
-            boardCard.transform.SetParent(Player.gameManager.playerField.content, false);
-            Player.gameManager.isSpawning = false;
+            Debug.LogWarning("Deck: RpcPlayCard ignored — the board card is not spawned on this client.");
+            return;
         }
-        else if (player.hasEnemy && !isLocalPlayer)
+
+        if (Player.gameManager == null)
+            Player.gameManager = FindObjectOfType<GameManager>();
+
+        GameManager gm = Player.gameManager;
+        if (gm == null)
         {
-            boardCard.GetComponent<FieldCard>().casterType = Target.ENEMIES;
-            boardCard.transform.SetParent(Player.gameManager.enemyField.content, false);
+            Debug.LogWarning("Deck: RpcPlayCard ignored — no GameManager on this client yet.");
+            return;
         }
+
+        FieldCard fieldCard = boardCard.GetComponent<FieldCard>();
+        if (fieldCard == null)
+        {
+            Debug.LogWarning($"Deck: RpcPlayCard ignored — {boardCard.name} has no FieldCard component.");
+            return;
+        }
+
+        bool mine = isLocalPlayer;
+        PlayerField field = mine ? gm.playerField : gm.enemyField;
+        if (field == null || field.content == null)
+        {
+            Debug.LogWarning($"Deck: RpcPlayCard ignored — the {(mine ? "player" : "enemy")} field is not assigned on this client.");
+            return;
+        }
+
+        fieldCard.casterType = mine ? Target.FRIENDLIES : Target.ENEMIES;
+        boardCard.transform.SetParent(field.content, false);
     }
     #endregion
 }

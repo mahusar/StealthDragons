@@ -24,11 +24,9 @@ public class HandCardDragHover : MonoBehaviour, IBeginDragHandler, IDragHandler,
         // Move card locally
         card.transform.localScale = new Vector2(0.8f, 0.8f);
         card.transform.localPosition = new Vector2(card.transform.localPosition.x, 190);
-        int index = card.transform.GetSiblingIndex();
 
         // Move corresponding card on opponent's screen
-        Player.gameManager.isHovering = true;
-        Player.gameManager.CmdOnCardHover(-25, index);
+        Player.gameManager.CmdSetHandHover(card.handIndex);
     }
 
     public void OnPointerExit(PointerEventData eventData)
@@ -38,11 +36,9 @@ public class HandCardDragHover : MonoBehaviour, IBeginDragHandler, IDragHandler,
         // Return to normal
         card.transform.localScale = new Vector2(0.5f, 0.5f);
         card.transform.localPosition = new Vector2(card.transform.localPosition.x, 0);
-        int index = card.handIndex;
 
         // Move corresponding card back to normal on opponent's screen
-        Player.gameManager.CmdOnCardHover(0, index);
-        Player.gameManager.isHovering = false;
+        Player.gameManager.CmdSetHandHover(-1);
     }
 
     public void OnBeginDrag(PointerEventData eventData)

@@ -41,9 +41,7 @@ public class GameManager : NetworkBehaviour
     public bool IsTurnOf(NetworkConnectionToClient conn) =>
         conn?.identity != null && IsTurnOf(conn.identity.GetComponent<Player>());
 
-    [HideInInspector] public bool isHovering = false;
     [HideInInspector] public bool isHoveringField = false;
-    [HideInInspector] public bool isSpawning = false;
 
     public SyncListPlayerInfo players = new SyncListPlayerInfo();
     public List<GameOutcome> gameOutcomes = new List<GameOutcome>();
@@ -197,34 +195,29 @@ public class GameManager : NetworkBehaviour
     }
 
     [Command(requiresAuthority = false)]
-    public void CmdOnCardHover(float moveBy, int index)
+    public void CmdSetHandHover(int index, NetworkConnectionToClient sender = null)
     {
-        if (index < 0)
-        {
-            Debug.LogWarning($"GameManager: CmdOnCardHover rejected — negative index {index}.");
-            return;
-        }
+        if (sender == null) return;
 
-        RpcCardHover(moveBy, index);
+        NetworkConnectionToClient opponent = ServerFindOpponentConnection(sender);
+        if (opponent == null) return;
+
+        TargetSetEnemyHandHover(opponent, index);
     }
 
-    [ClientRpc]
-    public void RpcCardHover(float moveBy, int index)
+    [Server]
+    private NetworkConnectionToClient ServerFindOpponentConnection(NetworkConnectionToClient sender)
     {
-        if (isHovering) return;
-        if (enemyHand == null || enemyHand.handContent == null) return;
+        foreach (NetworkConnectionToClient conn in NetworkServer.connections.Values)
+            if (conn != sender && conn.identity != null) return conn;
 
-        Transform content = enemyHand.handContent.transform;
-        if (index < 0 || index >= content.childCount)
-        {
-            Debug.LogWarning($"GameManager: RpcCardHover ignored — index {index} is outside the enemy hand ({content.childCount} cards).");
-            return;
-        }
+        return null;
+    }
 
-        HandCard card = content.GetChild(index).GetComponent<HandCard>();
-        if (card == null) return;
-
-        card.transform.localPosition = new Vector2(card.transform.localPosition.x, moveBy);
+    [TargetRpc]
+    private void TargetSetEnemyHandHover(NetworkConnectionToClient target, int index)
+    {
+        if (enemyHand != null) enemyHand.SetHoveredCard(index);
     }
 
     [Command(requiresAuthority = false)]

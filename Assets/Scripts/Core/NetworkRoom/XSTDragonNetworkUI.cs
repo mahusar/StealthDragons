@@ -1,10 +1,11 @@
+using Mirror;
 using UnityEngine;
 using TMPro;
 
 public class XSTDragonNetworkUI : MonoBehaviour
 {
     public TMP_InputField usernameInput;
-    string username = "StealthDragon";
+    string username = PlayerName.Default;
 
     void Awake()
     {
@@ -14,16 +15,28 @@ public class XSTDragonNetworkUI : MonoBehaviour
 
     void Start()
     {
-        username = PlayerPrefs.GetString("Name", "StealthDragon");
+        username = PlayerName.Resolve();
         if (usernameInput != null)
             usernameInput.text = username;
     }
 
     void OnUsernameEntered(string input)
     {
-        username = string.IsNullOrEmpty(input.Trim()) ? "StealthDragon" : input.Trim();
+        username = PlayerName.Sanitize(input);
         usernameInput.text = username;
-        PlayerPrefs.SetString("Name", username);
-        PlayerPrefs.Save();
+        PlayerName.Save(username);
+        PushToRoomPlayer(username);
+    }
+
+    void PushToRoomPlayer(string name)
+    {
+        if (!NetworkClient.active || NetworkClient.localPlayer == null) return;
+
+        DragonRoomPlayer roomPlayer = NetworkClient.localPlayer.GetComponent<DragonRoomPlayer>();
+        if (roomPlayer != null && roomPlayer.isOwned)
+        {
+            roomPlayer.CmdSetUsername(name);
+            Debug.Log($"[XSTDragonNetworkUI] Pushed renamed player '{name}' to the room.");
+        }
     }
 }

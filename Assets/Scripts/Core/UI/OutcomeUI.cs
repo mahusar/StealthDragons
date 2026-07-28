@@ -40,7 +40,7 @@ public class OutcomeUI : MonoBehaviour
 
     public void UpdateOutcomeDisplay()
     {
-        if (gameManager == null || statusText == null || Player.localPlayer == null)
+        if (gameManager == null || statusText == null || outcomePanel == null || Player.localPlayer == null)
         {
             Debug.LogWarning("[OutcomeUI] Missing reference.");
             return;

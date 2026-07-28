@@ -15,9 +15,7 @@ public class PlayerField : MonoBehaviour, IDropHandler
         {
             int index = card.handIndex;
 
-            Player.gameManager.isSpawning = true;
-            Player.gameManager.isHovering = false;
-            Player.gameManager.CmdOnCardHover(0, index);
+            Player.gameManager.CmdSetHandHover(-1);
             player.deck.CmdPlayCard(index);
         }
     }

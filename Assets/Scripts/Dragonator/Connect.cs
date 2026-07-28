@@ -16,7 +16,7 @@ public class Connect : MonoBehaviour
     [SerializeField] private Button joinButton;
     [SerializeField] private TMP_Text statusText;
     [SerializeField] private TMP_Text playersText;
-    private const string gameVersion = "0.5";  // GAME VERSION
+    private const string gameVersion = "0.6";  // GAME VERSION
     [SerializeField] private TMP_Text versionText;
     [SerializeField] private TMP_Text versionNumberText;
 
@@ -71,7 +71,7 @@ public class Connect : MonoBehaviour
             {
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 var tcp = new TcpClient();
-                tcp.ConnectThroughProxyAsync("127.0.0.1", 9050, address, TorConfig.MatchmakerPort)
+                tcp.ConnectThroughProxyAsync(TorConfig.SocksHost, TorConfig.SocksPort, address, TorConfig.MatchmakerPort)
                     .GetAwaiter().GetResult();
                 sw.Stop();
                 rttMs = sw.ElapsedMilliseconds;
@@ -107,7 +107,7 @@ public class Connect : MonoBehaviour
             try
             {
                 var tcp = new TcpClient();
-                tcp.ConnectThroughProxyAsync("127.0.0.1", 9050, address, TorConfig.MatchmakerPort)
+                tcp.ConnectThroughProxyAsync(TorConfig.SocksHost, TorConfig.SocksPort, address, TorConfig.MatchmakerPort)
                     .GetAwaiter().GetResult();
 
                 using (tcp)
@@ -141,7 +141,7 @@ public class Connect : MonoBehaviour
             try
             {
                 var tcp = new TcpClient();
-                tcp.ConnectThroughProxyAsync("127.0.0.1", 9050, address, TorConfig.MatchmakerPort)
+                tcp.ConnectThroughProxyAsync(TorConfig.SocksHost, TorConfig.SocksPort, address, TorConfig.MatchmakerPort)
                     .GetAwaiter().GetResult();
 
                 using (tcp)

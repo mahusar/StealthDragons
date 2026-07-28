@@ -58,7 +58,7 @@ public class Player : Entity
     {
         localPlayer = this;
         Debug.Log($"Player: Local player set for {username}, firstPlayer: {firstPlayer}");
-        CmdLoadPlayer(PlayerPrefs.GetString("Name"));
+        CmdLoadPlayer(PlayerName.Resolve());
 
         if (firstPlayer)
         {
@@ -107,7 +107,7 @@ public class Player : Entity
     [Command]
     public void CmdLoadPlayer(string user)
     {
-        username = user;
+        username = PlayerName.Sanitize(user);
     }
 
     [Command]

@@ -3,18 +3,18 @@ using UnityEngine;
 
 public class DragonRoomPlayer : NetworkRoomPlayer
 {
-    [SyncVar] public string username = "StealthDragon";
+    [SyncVar] public string username = PlayerName.Default;
 
     public override void OnStartLocalPlayer()
     {
         base.OnStartLocalPlayer();
-        CmdSetUsername(PlayerPrefs.GetString("Name", "StealthDragon"));
+        CmdSetUsername(PlayerName.Resolve());
     }
 
     [Command]
-    void CmdSetUsername(string name)
+    public void CmdSetUsername(string name)
     {
-        username = string.IsNullOrEmpty(name) ? "StealthDragon" : name;
+        username = PlayerName.Sanitize(name);
     }
 
     public override void OnStartClient()
