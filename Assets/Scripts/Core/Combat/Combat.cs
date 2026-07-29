@@ -78,11 +78,15 @@ public class Combat : NetworkBehaviour
                         {
                             gameManager.RecordGameOutcome(p, true);
 
-                            if (wallet != null)
+                            if (gameManager.practiceMode)
+                            {
+                                Debug.Log($"Practice match won by {p.username} — no stake was taken, so no payout is sent.");
+                            }
+                            else if (wallet != null)
                             {
                                 foreach (var conn in NetworkServer.connections.Values)
                                 {
-                                    Player connPlayer = conn.identity?.GetComponent<Player>();
+                                    Player connPlayer = conn.identity != null ? conn.identity.GetComponent<Player>() : null;
                                     if (connPlayer == p)
                                     {
                                         wallet.PayWinner(conn);
@@ -165,7 +169,7 @@ public class Combat : NetworkBehaviour
 
         if (!attackerObj.activeInHierarchy || !targetObj.activeInHierarchy)
         {
-            Debug.LogError($"ServerResolveAttack: Attacker ({attackerObj?.name}) or Target ({targetObj?.name}) is inactive!");
+            Debug.LogError($"ServerResolveAttack: Attacker ({SafeName(attackerObj)}) or Target ({SafeName(targetObj)}) is inactive!");
             return;
         }
 
@@ -173,7 +177,7 @@ public class Combat : NetworkBehaviour
         NetworkIdentity targetIdentity = targetObj.GetComponent<NetworkIdentity>();
         if (attackerIdentity == null || targetIdentity == null)
         {
-            Debug.LogError($"ServerResolveAttack: NetworkIdentity missing on Attacker ({attackerObj?.name}) or Target ({targetObj?.name})!");
+            Debug.LogError($"ServerResolveAttack: NetworkIdentity missing on Attacker ({SafeName(attackerObj)}) or Target ({SafeName(targetObj)})!");
             return;
         }
 
@@ -192,13 +196,19 @@ public class Combat : NetworkBehaviour
 
         RpcAnimateAttack(attackerIdentity.netId, targetIdentity.netId);
 
-        CardAnimator animator = attackerObj.GetComponent<CardAnimator>();
-        float impactDelay = animator != null
-            ? animator.moveDuration + animator.attackPause
-            : 0.7f;
-        Debug.Log($"ServerResolveAttack: damage lands at impact in {impactDelay}s");
+        Combat attackerCombat = attackerObj.GetComponent<Combat>();
+        Combat targetCombat = targetObj.GetComponent<Combat>();
+        if (attackerCombat == null || targetCombat == null)
+        {
+            Debug.LogError($"ServerResolveAttack: Combat component missing. Attacker: {attackerCombat}, Target: {targetCombat}");
+            return;
+        }
 
-        StartCoroutine(ApplyDamageAfterAnimation(attackerObj, targetObj, attackerStrength, targetStrength, impactDelay));
+        if (attackerCombat.entity == null) attackerCombat.entity = attackerEntity;
+        if (targetCombat.entity == null) targetCombat.entity = targetEntity;
+
+        targetCombat.ServerChangeHealth(-attackerStrength);
+        attackerCombat.ServerChangeHealth(-targetStrength);
     }
 
     private static GameObject FindSpawnedObject(uint netId)
@@ -206,6 +216,11 @@ public class Combat : NetworkBehaviour
         if (!NetworkClient.spawned.TryGetValue(netId, out NetworkIdentity identity)) return null;
         if (identity == null) return null;
         return identity.gameObject;
+    }
+
+    private static string SafeName(GameObject go)
+    {
+        return go == null ? "<destroyed>" : go.name;
     }
 
     [ClientRpc]
@@ -233,52 +248,6 @@ public class Combat : NetworkBehaviour
         }
     }
 
-    private IEnumerator ApplyDamageAfterAnimation(GameObject attackerObj, GameObject targetObj, int attackerStrength, int targetStrength, float delay)
-    {
-        Debug.Log($"ApplyDamageAfterAnimation: Starting for {attackerObj?.name} attacking {targetObj?.name}. Waiting {delay}s");
-        yield return new WaitForSeconds(delay);
-
-        if (attackerObj == null || targetObj == null)
-        {
-            Debug.LogError($"ApplyDamageAfterAnimation: Attacker ({attackerObj?.name}) or Target ({targetObj?.name}) is null!");
-            yield break;
-        }
-
-        if (!attackerObj.activeInHierarchy || !targetObj.activeInHierarchy)
-        {
-            Debug.LogError($"ApplyDamageAfterAnimation: Attacker ({attackerObj.name}) or Target ({targetObj.name}) is inactive!");
-            yield break;
-        }
-
-        Entity attackerEntity = attackerObj.GetComponent<Entity>();
-        Entity targetEntity = targetObj.GetComponent<Entity>();
-        if (attackerEntity == null || targetEntity == null)
-        {
-            Debug.LogError($"ApplyDamageAfterAnimation: Entity component missing. Attacker Entity: {attackerEntity}, Target Entity: {targetEntity}");
-            yield break;
-        }
-
-        Combat attackerCombat = attackerObj.GetComponent<Combat>();
-        Combat targetCombat = targetObj.GetComponent<Combat>();
-        if (attackerCombat == null || targetCombat == null)
-        {
-            Debug.LogError($"ApplyDamageAfterAnimation: Combat component missing. Attacker Combat: {attackerCombat}, Target Combat: {targetCombat}");
-            yield break;
-        }
-
-        if (attackerCombat.entity == null || targetCombat.entity == null)
-        {
-            Debug.LogWarning($"ApplyDamageAfterAnimation: Combat.entity is null. Attacker: {attackerCombat.entity}, Target: {targetCombat.entity}. Assigning entities.");
-            attackerCombat.entity = attackerEntity;
-            targetCombat.entity = targetEntity;
-        }
-
-        Debug.Log($"ApplyDamageAfterAnimation: Applying damage. {attackerObj.name} deals {attackerStrength} to {targetObj.name}, {targetObj.name} deals {targetStrength} to {attackerObj.name}");
-
-        targetCombat.ServerChangeHealth(-attackerStrength);
-        attackerCombat.ServerChangeHealth(-targetStrength);
-    }
-
     private IEnumerator DestroyCardAfterAnimation(GameObject cardObject)
     {
         if (cardObject == null)
@@ -296,11 +265,12 @@ public class Combat : NetworkBehaviour
 
         CardAnimator animator = cardObject.GetComponent<CardAnimator>();
         float animationDuration = animator != null
-            ? animator.returnDuration + 0.1f
-            : 0.4f;
-        Debug.Log($"DestroyCardAfterAnimation: Waiting for {animationDuration}s before destroying {cardObject.name}");
+            ? animator.moveDuration + animator.attackPause + animator.returnDuration + 0.05f
+            : 1.05f;
 
         yield return new WaitForSeconds(animationDuration);
+
+        if (cardObject == null) yield break;
 
         if (!cardObject.activeInHierarchy)
         {

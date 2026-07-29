@@ -3,8 +3,8 @@ using System.Collections;
 using System.IO;
 using System.Net.Sockets;
 using System.Text;
+using System.Threading;
 using UnityEngine;
-using UnityEngine.SceneManagement;
 
 public class XSTDragonNetworkManager : NetworkRoomManager
 {
@@ -12,6 +12,10 @@ public class XSTDragonNetworkManager : NetworkRoomManager
     public string matchmakerAddress = "127.0.0.1";
     public int matchmakerPort = 5555;
     private bool isHosting = false;
+
+    [HideInInspector] public bool intentionalLeave;
+
+    private const int MatchmakerConnectTimeoutMs = 1500;
 
     private int connectedPlayers = 0;
     private string statusFilePath => Application.persistentDataPath + "/status.txt";
@@ -122,7 +126,12 @@ public class XSTDragonNetworkManager : NetworkRoomManager
             if (PracticeMode.Active)
             {
                 Debug.LogWarning("PracticeMode is active — skipping wallet initialisation entirely.");
-                PracticeMode.Instance?.OnGameplaySceneLoaded();
+
+                PracticeMode practice = PracticeMode.Instance;
+                if (practice != null)
+                    practice.OnGameplaySceneLoaded();
+                else
+                    Debug.LogError("PracticeMode.Active is set but Instance is missing — the bot will not spawn.");
             }
             else
             {
@@ -178,11 +187,15 @@ public class XSTDragonNetworkManager : NetworkRoomManager
     public override void OnStopServer()
     {
         isHosting = false;
+
+        bool wasPractice = PracticeMode.Active;
         PracticeMode.Clear();
-        SendToMatchmaker($"DEREGISTER|{networkAddress}|{networkPort}");
+
+        if (!wasPractice)
+            SendToMatchmaker($"DEREGISTER|{networkAddress}|{networkPort}");
+
         base.OnStopServer();
         Debug.Log("Server stopped.");
-        SceneManager.LoadScene("RoomOffline");
     }
 
     public override void OnClientConnect()
@@ -196,34 +209,77 @@ public class XSTDragonNetworkManager : NetworkRoomManager
         base.OnClientDisconnect();
         Debug.Log("Client disconnected.");
 
+        if (intentionalLeave)
+        {
+            intentionalLeave = false;
+            return;
+        }
+
         DisconnectUI disconnectUI = FindFirstObjectByType<DisconnectUI>();
         if (disconnectUI != null)
             disconnectUI.ShowDisconnectMessage("Player Disconnected");
         else
             Debug.LogWarning("DisconnectUI not found.");
+    }
 
-        if (!NetworkServer.active)
-            SceneManager.LoadScene("RoomOffline");
+    public void LeaveCurrentSession()
+    {
+        intentionalLeave = true;
+
+        if (NetworkServer.active && NetworkClient.isConnected)
+        {
+            SendToMatchmaker($"REMOVE_ROOM|{networkAddress}|{networkPort}");
+            StopHost();
+            Debug.Log("Host stopped server and left the room.");
+        }
+        else if (NetworkClient.isConnected)
+        {
+            SendToMatchmaker($"PLAYER_LEAVE|{networkAddress}|{networkPort}");
+            StopClient();
+            Debug.Log("Client disconnected from the server.");
+        }
+        else
+        {
+            intentionalLeave = false;
+            Debug.LogWarning("Not connected to any server.");
+            UnityEngine.SceneManagement.SceneManager.LoadScene("RoomOffline");
+        }
     }
 
     public void SendToMatchmaker(string message)
     {
-        try
+        if (PracticeMode.Active) return;
+
+        string host = matchmakerAddress;
+        int port = matchmakerPort;
+
+        ThreadPool.QueueUserWorkItem(_ =>
         {
-            using (var client = new TcpClient())
+            try
             {
-                client.Connect(matchmakerAddress, matchmakerPort);
-                using (var stream = client.GetStream())
-                using (var writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true })
+                using (var client = new TcpClient())
                 {
-                    writer.WriteLine(message);
+                    System.IAsyncResult pending = client.BeginConnect(host, port, null, null);
+                    if (!pending.AsyncWaitHandle.WaitOne(MatchmakerConnectTimeoutMs))
+                    {
+                        Debug.LogWarning($"Matchmaker at {host}:{port} did not answer within {MatchmakerConnectTimeoutMs}ms; dropped '{message}'.");
+                        return;
+                    }
+
+                    client.EndConnect(pending);
+
+                    using (var stream = client.GetStream())
+                    using (var writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true })
+                    {
+                        writer.WriteLine(message);
+                    }
                 }
             }
-        }
-        catch (System.Exception e)
-        {
-            Debug.LogWarning($"Failed to send to matchmaker: {e.Message}");
-        }
+            catch (System.Exception e)
+            {
+                Debug.LogWarning($"Failed to send to matchmaker: {e.Message}");
+            }
+        });
     }
 
     private void SendHeartbeat()

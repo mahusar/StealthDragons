@@ -16,6 +16,8 @@ public class PracticeMode : MonoBehaviour
 
     private bool botSpawned;
 
+    private static int savedMinPlayers = -1;
+
     void Awake()
     {
         if (Instance != null && Instance != this)
@@ -24,6 +26,11 @@ public class PracticeMode : MonoBehaviour
             return;
         }
         Instance = this;
+    }
+
+    void OnDestroy()
+    {
+        if (Instance == this) Instance = null;
     }
 
     public void StartPractice()
@@ -43,6 +50,7 @@ public class PracticeMode : MonoBehaviour
 
         Active = true;
         botSpawned = false;
+        if (savedMinPlayers < 0) savedMinPlayers = manager.minPlayers;
         manager.minPlayers = 1;
 
         Debug.LogWarning("PracticeMode: starting an offline practice match. No stake is taken and no payout is ever sent.");
@@ -93,6 +101,17 @@ public class PracticeMode : MonoBehaviour
     public static void Clear()
     {
         Active = false;
+
+        if (savedMinPlayers < 0) return;
+
+        XSTDragonNetworkManager manager = XSTDragonNetworkManager.singleton;
+        if (manager != null)
+        {
+            manager.minPlayers = savedMinPlayers;
+            Debug.Log($"PracticeMode: restored minPlayers to {savedMinPlayers}.");
+        }
+
+        savedMinPlayers = -1;
     }
 
     public void OnGameplaySceneLoaded()

@@ -7,10 +7,13 @@ public class AIBot : MonoBehaviour
 {
     [Header("Pacing")]
     [Tooltip("Seconds the bot waits before its first action, so the player can read the board.")]
-    public float thinkDelay = 0.8f;
+    public float thinkDelay = 1.2f;
 
-    [Tooltip("Seconds between individual bot actions.")]
-    public float actionDelay = 0.6f;
+    [Tooltip("Seconds between cards the bot plays.")]
+    public float playDelay = 0.9f;
+
+    [Tooltip("Seconds between bot attacks. Must exceed the full attack animation or actions overlap.")]
+    public float attackDelay = 1.6f;
 
     [Tooltip("Hard cap on actions per turn. Guards against a policy bug looping forever.")]
     public int maxActionsPerTurn = 24;
@@ -56,13 +59,13 @@ public class AIBot : MonoBehaviour
         while (actions < maxActionsPerTurn && StillOurTurn() && PlayBestAffordableCreature())
         {
             actions++;
-            yield return new WaitForSeconds(actionDelay);
+            yield return new WaitForSeconds(playDelay);
         }
 
         while (actions < maxActionsPerTurn && StillOurTurn() && AttackWithNextReadyCreature())
         {
             actions++;
-            yield return new WaitForSeconds(actionDelay);
+            yield return new WaitForSeconds(attackDelay);
         }
 
         if (actions >= maxActionsPerTurn)

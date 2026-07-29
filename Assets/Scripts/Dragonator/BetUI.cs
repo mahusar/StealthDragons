@@ -113,7 +113,7 @@ public class BetUI : MonoBehaviour
         depositAddressText.text = depositAddress;
         betAmountText.text = $"Send exactly {amount} XST";
         statusText.color = Color.white;
-        statusText.text = "Waiting for your payment — it is detected automatically.";
+        statusText.text = "Waiting for your payment, it is detected automatically.";
 
         countdownRunning = true;
     }

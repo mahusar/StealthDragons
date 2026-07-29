@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.UI;
 using DG.Tweening;
 
 public class CardAnimator : MonoBehaviour
@@ -9,9 +10,9 @@ public class CardAnimator : MonoBehaviour
 
     public void AnimateAttack(Transform attacker, Transform target, System.Action onComplete)
     {
-        Vector3 originalPos = attacker.position;
+        DOTween.Kill(attacker, true);
 
-        DOTween.Kill(attacker);
+        Vector3 originalPos = attacker.position;
 
         Sequence attackSequence = DOTween.Sequence();
         attackSequence.SetTarget(attacker);
@@ -19,6 +20,17 @@ public class CardAnimator : MonoBehaviour
         attackSequence.Append(attacker.DOMove(target.position, moveDuration).SetEase(Ease.InOutSine));
         attackSequence.AppendInterval(attackPause);
         attackSequence.Append(attacker.DOMove(originalPos, returnDuration).SetEase(Ease.InOutSine));
-        attackSequence.OnComplete(() => onComplete?.Invoke());
+        attackSequence.OnComplete(() =>
+        {
+            RestoreLayout(attacker);
+            onComplete?.Invoke();
+        });
+    }
+
+    private void RestoreLayout(Transform card)
+    {
+        if (card == null) return;
+        if (card.parent is RectTransform parent)
+            LayoutRebuilder.MarkLayoutForRebuild(parent);
     }
 }

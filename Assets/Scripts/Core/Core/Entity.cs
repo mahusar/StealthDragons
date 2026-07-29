@@ -29,8 +29,8 @@ public abstract partial class Entity : NetworkBehaviour
     public bool taunt = false;
 
     public bool IsDead() => health <= 0;
-    public bool CanAttack() => Player.gameManager.isOurTurn && waitTurn == 0 && !hasAttackedThisTurn && casterType == Target.FRIENDLIES;
-    public bool CantAttack() => Player.gameManager.isOurTurn && (waitTurn > 0 || hasAttackedThisTurn) && casterType == Target.FRIENDLIES;
+    public bool CanAttack() => Player.gameManager != null && Player.gameManager.isOurTurn && waitTurn == 0 && !hasAttackedThisTurn && casterType == Target.FRIENDLIES;
+    public bool CantAttack() => Player.gameManager != null && Player.gameManager.isOurTurn && (waitTurn > 0 || hasAttackedThisTurn) && casterType == Target.FRIENDLIES;
 
     public virtual void SpawnTargetingArrow(CardInfo card, bool IsAbility = false)
     {

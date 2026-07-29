@@ -1,5 +1,6 @@
 ﻿using UnityEngine;
 using Mirror;
+using TMPro;
 using System.Collections;
 using System.Collections.Generic;
 
@@ -28,6 +29,17 @@ public class GameManager : NetworkBehaviour
     public GameObject endTurnButton;
     [HideInInspector] public bool isOurTurn = false;
     [SyncVar, HideInInspector] public int turnCount = 1;
+
+    [Header("Turn Timer")]
+    [Tooltip("Seconds a player gets per turn before the turn is passed automatically.")]
+    public float turnSeconds = 60f;
+    [Tooltip("Seconds remaining at which the countdown turns to the warning colour.")]
+    public float turnWarningSeconds = 10f;
+    public TMP_Text turnTimerText;
+    public Color turnTimerColor = Color.white;
+    public Color turnTimerWarningColor = new Color(1f, 0.35f, 0.35f);
+
+    [SyncVar, HideInInspector] public double turnDeadline;
 
     [SyncVar(hook = nameof(OnTurnOwnerChanged)), HideInInspector] public uint currentTurnNetId;
 
@@ -154,7 +166,59 @@ public class GameManager : NetworkBehaviour
 
         if (player.deck != null) player.deck.ServerDrawCards(1);
 
+        turnDeadline = turnSeconds > 0f ? NetworkTime.time + turnSeconds : 0d;
+
         Debug.Log($"GameManager: Turn {turnCount} begins for {player.username} (mana {player.mana}).");
+    }
+
+    void Update()
+    {
+        if (isServer) ServerCheckTurnTimeout();
+        UpdateTurnTimerUI();
+    }
+
+    [Server]
+    private void ServerCheckTurnTimeout()
+    {
+        if (currentTurnNetId == 0 || turnDeadline <= 0d) return;
+        if (NetworkTime.time < turnDeadline) return;
+
+        Player current = ServerFindPlayerByNetId(currentTurnNetId);
+
+        turnDeadline = 0d;
+
+        if (current == null)
+        {
+            Debug.LogWarning("GameManager: turn timer expired but the turn holder is gone.");
+            return;
+        }
+
+        Debug.Log($"GameManager: {current.username} ran out of time after {turnSeconds}s — passing the turn.");
+        ServerEndTurn(current);
+    }
+
+    [Server]
+    private Player ServerFindPlayerByNetId(uint netId)
+    {
+        if (!NetworkServer.spawned.TryGetValue(netId, out NetworkIdentity identity)) return null;
+        return identity != null ? identity.GetComponent<Player>() : null;
+    }
+
+    private void UpdateTurnTimerUI()
+    {
+        if (turnTimerText == null) return;
+
+        if (currentTurnNetId == 0 || turnDeadline <= 0d)
+        {
+            turnTimerText.text = "";
+            return;
+        }
+
+        double remaining = turnDeadline - NetworkTime.time;
+        if (remaining < 0d) remaining = 0d;
+
+        turnTimerText.text = Mathf.CeilToInt((float)remaining).ToString();
+        turnTimerText.color = remaining <= turnWarningSeconds ? turnTimerWarningColor : turnTimerColor;
     }
 
     [Server]

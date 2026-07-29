@@ -50,29 +50,7 @@ public class LeaveRoomUI : MonoBehaviour
             return;
         }
 
-        // Notify matchmaker based on role
-        if (NetworkServer.active && NetworkClient.isConnected)
-        {
-            // Host: Stop the server and notify matchmaker to remove the room
-            manager.SendToMatchmaker($"REMOVE_ROOM|{manager.networkAddress}|{manager.networkPort}");
-            manager.StopHost();
-            Debug.Log("Host stopped server and left the room.");
-        }
-        else if (NetworkClient.isConnected)
-        {
-            // Client: Disconnect and notify matchmaker of player leaving
-            manager.SendToMatchmaker($"PLAYER_LEAVE|{manager.networkAddress}|{manager.networkPort}");
-            manager.StopClient();
-            Debug.Log("Client disconnected from the server.");
-        }
-        else
-        {
-            Debug.LogWarning("Not connected to any server.");
-        }
-
-        // Load offline scene and refresh room list
-    //    SceneManager.sceneLoaded += OnOfflineSceneLoaded;
-        SceneManager.LoadScene("RoomOffline");
+        manager.LeaveCurrentSession();
     }
 /*
     private void OnOfflineSceneLoaded(Scene scene, LoadSceneMode mode)

@@ -35,6 +35,9 @@ public class Chat : NetworkBehaviour
 
     readonly Queue<string> historyLines = new Queue<string>();
 
+    private GameManager gameManager;
+    private bool chatDisabled;
+
     public override void OnStartServer()
     {
         connNames.Clear();
@@ -44,6 +47,33 @@ public class Chat : NetworkBehaviour
     public override void OnStartClient()
     {
         if (chatHistory != null) chatHistory.text = "";
+    }
+
+    void Update()
+    {
+        if (chatDisabled) return;
+
+        if (gameManager == null) gameManager = FindFirstObjectByType<GameManager>();
+        if (gameManager == null || !gameManager.practiceMode) return;
+
+        DisableChat();
+    }
+
+    private void DisableChat()
+    {
+        chatDisabled = true;
+
+        foreach (Transform child in transform)
+            child.gameObject.SetActive(false);
+
+        Debug.Log("Chat: disabled for this practice match.");
+    }
+
+    [Server]
+    private bool IsPracticeMatch()
+    {
+        if (gameManager == null) gameManager = FindFirstObjectByType<GameManager>();
+        return gameManager != null && gameManager.practiceMode;
     }
 
     static string Sanitize(string value, int maxLength)
@@ -109,6 +139,7 @@ public class Chat : NetworkBehaviour
     void CmdSend(string message, NetworkConnectionToClient sender = null)
     {
         if (sender == null) return;
+        if (IsPracticeMatch()) return;
         if (!WithinSendRate(sender)) return;
 
         string clean = Sanitize(message, maxMessageLength);
@@ -153,9 +184,14 @@ public class Chat : NetworkBehaviour
     // Called by UI element ExitButton.OnClick
     public void ExitButtonOnClick()
     {
-        // StopHost calls both StopClient and StopServer
-        // StopServer does nothing on remote clients
-        NetworkManager.singleton.StopHost();
+        XSTDragonNetworkManager manager = NetworkManager.singleton as XSTDragonNetworkManager;
+        if (manager == null)
+        {
+            Debug.LogError("Chat: XSTDragonNetworkManager not found — cannot leave the match.");
+            return;
+        }
+
+        manager.LeaveCurrentSession();
     }
 
     // Called by UI element MessageField.OnValueChanged
