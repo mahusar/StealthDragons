@@ -33,8 +33,6 @@ The cards are NFT node artworks, drawn randomly, and every player has the same n
 - sudo apt install tor
 - sudo systemctl start tor
 - sudo systemctl status tor
-##### Find Address
-- sudo cat /var/lib/tor/hidden_service/hostname
 ##### Add at the bottom
 - sudo nano /etc/tor/torrc
 - HiddenServiceDir /var/lib/tor/hidden_service/
@@ -46,25 +44,31 @@ The cards are NFT node artworks, drawn randomly, and every player has the same n
 - nano StealthCoin.conf
 - rpcbind=127.0.0.1
 - rpcallowip=127.0.0.1
+##### Start Dragonator
+- chmod +x dragonator.x86_64
+- ./dragonator.x86_64 -batchmode -nographics
+- stop dragonator
 ##### Create rpc.config 
 - cd ~/.config/unity3d/StealthDragons/StealthDragons
 - nano ~/.config/unity3d/StealthDragons/StealthDragons/rpc.conf
 - rpcuser=stealthuser
 - rpcpassword=stealthpassword
 - rpcurl=http://127.0.0.1:46502/
+##### Find Address
+- sudo cat /var/lib/tor/hidden_service/hostname
 ##### Start Dragonator
 - chmod +x dragonator.x86_64
 - ./dragonator.x86_64 -batchmode -nographics
 ##### Check ports 
 - ss -tlnp | grep 7780   # game port
 - ss -tlnp | grep 5555   # matchmaker port
-
+##### Start Dragonator
+- ./dragonator.x86_64 -batchmode -nographics
 ### Development Environment
 - Unity Engine 6000.0.71f1
 - Mirror Networking 96.0.1 
 - TextMesh Pro
 - DOTween
-  
 ### Network components
 - MatchMakerServer
 - DragonNetworkManager
@@ -83,11 +87,11 @@ PvP match with Stealth (XST) integration
 
 https://www.youtube.com/watch?v=gPVLkC-fBXw
 
-### Experimental Software Notice
+###### Experimental Software Notice
 StealthDragons and Dragonator are experimental software provided for testing and development purposes only.
 Use this software at your own risk. No guarantees are made regarding stability, security, or reliability. Funds may be lost due to bugs, crashes, or unexpected behavior.
 
-### No Gambling or Betting Service Disclaimer
+###### No Gambling or Betting Service Disclaimer
 This software is a peer-to-peer experimental game integration and does not operate, provide, or promote any gambling or betting service.
 The developer does not host, manage, or control user funds beyond the automated blockchain transaction functionality built into the software.
 Users are fully responsible for how they use this software and must comply with their local laws and regulations.
