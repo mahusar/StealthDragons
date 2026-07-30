@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Net.Sockets;
 using System.Collections;
+using System.Globalization;
 using System.Text;
 using TMPro;
 using UnityEngine;
@@ -19,6 +20,7 @@ public class Connect : MonoBehaviour
     private const string gameVersion = "0.6";  // GAME VERSION
     [SerializeField] private TMP_Text versionText;
     [SerializeField] private TMP_Text versionNumberText;
+    [SerializeField] private TMP_Text serverInfoText;
 
     // Stores the actual port returned by the server via GET_ROOMS
     private int _lastKnownServerPort = 7780;
@@ -57,6 +59,7 @@ public class Connect : MonoBehaviour
         statusText.text = "Pinging server...";
         playersText.text = "";
         if (versionText != null) versionText.text = "";
+        if (serverInfoText != null) serverInfoText.text = "";
         connectButton.interactable = false;
         joinButton.gameObject.SetActive(false);
 
@@ -180,8 +183,103 @@ public class Connect : MonoBehaviour
             versionText.text = $"Version: OK";
         }
 
+        // ── Step 4: GET_SERVERINFO — how this server is configured ───────────
+        string serverInfo = "";
+        done = false;
+
+        var thread4 = new System.Threading.Thread(() =>
+        {
+            try
+            {
+                var tcp = new TcpClient();
+                tcp.ConnectThroughProxyAsync(TorConfig.SocksHost, TorConfig.SocksPort, address, TorConfig.MatchmakerPort)
+                    .GetAwaiter().GetResult();
+
+                using (tcp)
+                using (var stream = tcp.GetStream())
+                using (var writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true })
+                using (var reader = new StreamReader(stream, Encoding.UTF8))
+                {
+                    writer.WriteLine("GET_SERVERINFO");
+                    serverInfo = reader.ReadLine() ?? "";
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[Connect] Server info fetch failed: {e.Message}");
+                serverInfo = "";
+            }
+            finally { done = true; }
+        });
+        thread4.IsBackground = true;
+        thread4.Start();
+        while (!done) yield return null;
+
+        ShowServerInfo(serverInfo);
+
         joinButton.gameObject.SetActive(true);
         connectButton.interactable = true;
+    }
+
+    private void ShowServerInfo(string wire)
+    {
+        if (serverInfoText == null) return;
+
+        if (string.IsNullOrEmpty(wire))
+        {
+            serverInfoText.text = "Server settings unavailable";
+            return;
+        }
+
+        StringBuilder lines = new StringBuilder();
+        decimal bet = -1m;
+        decimal fee = -1m;
+
+        foreach (string pair in wire.Split(';'))
+        {
+            int split = pair.IndexOf('=');
+            if (split <= 0) continue;
+
+            string key = pair.Substring(0, split).Trim();
+            string value = pair.Substring(split + 1).Trim();
+
+            decimal number;
+            bool isNumber = decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out number);
+            if (isNumber && key == "bet") bet = number;
+            if (isNumber && key == "fee") fee = number;
+
+            if (lines.Length > 0) lines.Append('\n');
+            lines.Append(DescribeSetting(key, value));
+        }
+
+        if (bet > 0m && fee >= 0m)
+        {
+            decimal payout = bet * 2m - fee;
+            if (payout > 0m)
+                lines.Append($"\nWinner receives: {Format(payout)} XST");
+        }
+
+        serverInfoText.text = lines.Length > 0 ? lines.ToString() : "Server settings unavailable";
+    }
+
+    private static string Format(decimal value)
+    {
+        return value.ToString("0.########", CultureInfo.InvariantCulture);
+    }
+
+    private string DescribeSetting(string key, string value)
+    {
+        if (key == "bet") return $"Bet: {value} XST per player";
+
+        if (key == "fee")
+        {
+            decimal fee;
+            bool parsed = decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out fee);
+            if (parsed && fee <= 0m) return "Host fee: none";
+            return $"Host fee: {value} XST per match";
+        }
+
+        return $"{key}: {value}";
     }
 
     private void OnJoinClicked()

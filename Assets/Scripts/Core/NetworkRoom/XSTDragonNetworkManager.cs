@@ -51,8 +51,29 @@ public class XSTDragonNetworkManager : NetworkRoomManager
         {
             networkPort = 7780;
             UpdateTransportPort();
-            StartServer();
         }
+    }
+
+    public override void Start()
+    {
+        base.Start();
+
+        if (!Utils.IsHeadless() || singleton != this) return;
+
+        if (!ServerSetup.WalletReady)
+        {
+            Debug.LogError("No usable rpc.conf; refusing to start a server that cannot pay out.");
+            Application.Quit(1);
+            return;
+        }
+
+        if (!ServerOptions.Configured)
+        {
+            Debug.LogError("Server setup did not complete; refusing to start with unconfirmed bet and fee settings.");
+            return;
+        }
+
+        StartServer();
     }
 
     public void UpdateTransportPort()

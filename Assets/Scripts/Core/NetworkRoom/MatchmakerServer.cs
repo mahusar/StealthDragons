@@ -178,6 +178,10 @@ public class MatchmakerServer : MonoBehaviour
         {
             writer.WriteLine(GameVersion);
         }
+        else if (message == "GET_SERVERINFO")
+        {
+            writer.WriteLine(ServerOptions.ToWire());
+        }
     }
 
     IEnumerator CleanupInactiveRooms()

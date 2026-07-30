@@ -28,6 +28,8 @@ public class DisplaySettings : MonoBehaviour
 
     void Awake()
     {
+        if (Mirror.Utils.IsHeadless()) return;
+
         BuildOptions();
 
         if (appliedThisSession) return;
@@ -37,6 +39,8 @@ public class DisplaySettings : MonoBehaviour
 
     void Start()
     {
+        if (Mirror.Utils.IsHeadless()) return;
+
         Populate();
     }
 

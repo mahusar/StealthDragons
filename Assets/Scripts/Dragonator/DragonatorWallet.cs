@@ -117,6 +117,13 @@ public class DragonatorWallet : NetworkBehaviour
             parsed = 0.01m;
             Debug.LogError($"[DragonatorWallet] Invalid betAmountXst '{betAmountXst}' — falling back to {parsed}.");
         }
+
+        if (ServerOptions.Configured && BetAmountOption.BetXst > 0m)
+        {
+            parsed = BetAmountOption.BetXst;
+            Debug.Log($"[DragonatorWallet] Using the configured server stake of {parsed} XST.");
+        }
+
         BetAmount = parsed;
     }
 
@@ -742,9 +749,24 @@ public class DragonatorWallet : NetworkBehaviour
             return;
         }
 
-        Debug.Log($"[DragonatorWallet] Match {matchId}: paying {pot} XST to {winner.name} ({winner.payoutAddress}).");
+        decimal fee = ServerOptions.Configured ? HostFeeOption.FeeXst : 0m;
+        if (fee < 0m) fee = 0m;
+
+        if (fee >= pot)
+        {
+            Debug.LogError($"[DragonatorWallet] Match {matchId}: host fee {fee} XST is not less than the " +
+                           $"pot {pot} XST — paying the full pot instead of shorting the winner.");
+            fee = 0m;
+        }
+
+        decimal payout = pot - fee;
+
+        if (fee > 0m)
+            Debug.Log($"[DragonatorWallet] Match {matchId}: pot {pot} XST, host fee {fee} XST retained.");
+
+        Debug.Log($"[DragonatorWallet] Match {matchId}: paying {payout} XST to {winner.name} ({winner.payoutAddress}).");
         StartCoroutine(SendFunds(matchId, BetLedger.KindPayout, winner.connectionId,
-                                 winner.payoutAddress, pot, winner));
+                                 winner.payoutAddress, payout, winner));
     }
 
     [Server]
