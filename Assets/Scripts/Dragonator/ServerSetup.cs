@@ -11,6 +11,7 @@ public static class ServerSetup
     private const string DropLogFlag = "-nosetuplog";
     private const string FeeAlias = "-hostfee";
     private const string RpcConfigFile = "rpc.conf";
+    private const string StartPrefix = "   starting server — ";
 
     private static bool ran;
     private static Gate gate;
@@ -33,6 +34,7 @@ public static class ServerSetup
 
         try
         {
+            AddonLoader.EnsureLoaded();
             ServerBanner.Print();
             Run();
         }
@@ -230,7 +232,12 @@ public static class ServerSetup
         ServerOptions.MarkConfigured();
 
         string suffix = string.IsNullOrEmpty(reason) ? "" : " (" + reason + ")";
-        Console.WriteLine("   starting server — " + ServerOptions.DescribeAll() + suffix);
+        Console.WriteLine(StartPrefix + ServerOptions.DescribeCore() + suffix);
+
+        string indent = new string(' ', StartPrefix.Length);
+        foreach (string line in ServerOptions.DescribeExternal())
+            Console.WriteLine(indent + line);
+
         Console.WriteLine();
     }
 

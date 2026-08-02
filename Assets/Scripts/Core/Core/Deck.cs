@@ -310,6 +310,7 @@ public class Deck : NetworkBehaviour
 
         fieldCard.casterType = mine ? Target.FRIENDLIES : Target.ENEMIES;
         boardCard.transform.SetParent(field.content, false);
+        CardPlayAnimator.PlayEntry(boardCard.transform);
     }
     #endregion
 }

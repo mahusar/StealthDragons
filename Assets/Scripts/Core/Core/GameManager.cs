@@ -1,6 +1,8 @@
 ﻿using UnityEngine;
+using UnityEngine.UI;
 using Mirror;
 using TMPro;
+using DG.Tweening;
 using System.Collections;
 using System.Collections.Generic;
 
@@ -27,7 +29,18 @@ public class GameManager : NetworkBehaviour
 
     [Header("Turn Management")]
     public GameObject endTurnButton;
+    [Tooltip("The turn button itself. Left empty, the first Button under endTurnButton is used.")]
+    public RectTransform turnButtonRect;
+    public Vector2 turnButtonMyTurnPosition = new Vector2(727f, -58f);
+    public Vector2 turnButtonOpponentPosition = new Vector2(727f, 58f);
+    public Color turnButtonWaitingColor = Color.black;
+    public float turnButtonMoveDuration = 0.35f;
     [HideInInspector] public bool isOurTurn = false;
+
+    private bool turnButtonCaptured;
+    private Button turnButtonButton;
+    private Image turnButtonImage;
+    private Color turnButtonActiveColor = Color.white;
     [SyncVar, HideInInspector] public int turnCount = 1;
 
     [Header("Turn Timer")]
@@ -255,7 +268,50 @@ public class GameManager : NetworkBehaviour
         if (Player.localPlayer == null) return;
 
         isOurTurn = Player.localPlayer.netId == currentTurnNetId;
-        if (endTurnButton != null) endTurnButton.SetActive(isOurTurn);
+        if (endTurnButton == null) return;
+
+        CaptureTurnButton();
+        endTurnButton.SetActive(true);
+        MoveTurnButton(isOurTurn);
+    }
+
+    private void CaptureTurnButton()
+    {
+        if (turnButtonCaptured || endTurnButton == null) return;
+        turnButtonCaptured = true;
+
+        if (turnButtonRect == null)
+        {
+            Button found = endTurnButton.GetComponentInChildren<Button>(true);
+            if (found != null) turnButtonRect = found.GetComponent<RectTransform>();
+        }
+
+        if (turnButtonRect == null) return;
+
+        turnButtonButton = turnButtonRect.GetComponent<Button>();
+        turnButtonImage = turnButtonRect.GetComponent<Image>();
+        if (turnButtonImage != null) turnButtonActiveColor = turnButtonImage.color;
+    }
+
+    private void MoveTurnButton(bool ourTurn)
+    {
+        if (turnButtonRect == null) return;
+
+        Vector2 target = ourTurn ? turnButtonMyTurnPosition : turnButtonOpponentPosition;
+
+        DOTween.Kill(turnButtonRect);
+        turnButtonRect.DOAnchorPos(target, turnButtonMoveDuration).SetEase(Ease.OutCubic).SetLink(turnButtonRect.gameObject);
+
+        if (turnButtonImage != null)
+        {
+            Color colour = ourTurn ? turnButtonActiveColor : turnButtonWaitingColor;
+            colour.a = turnButtonActiveColor.a;
+
+            DOTween.Kill(turnButtonImage);
+            turnButtonImage.DOColor(colour, turnButtonMoveDuration).SetLink(turnButtonImage.gameObject);
+        }
+
+        if (turnButtonButton != null) turnButtonButton.interactable = ourTurn;
     }
 
     [Command(requiresAuthority = false)]

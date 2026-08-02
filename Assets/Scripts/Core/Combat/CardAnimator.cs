@@ -8,9 +8,13 @@ public class CardAnimator : MonoBehaviour
     public float returnDuration = 0.3f;
     public float attackPause = 0.2f;
 
+    public bool isAttacking { get; private set; }
+
     public void AnimateAttack(Transform attacker, Transform target, System.Action onComplete)
     {
         DOTween.Kill(attacker, true);
+
+        isAttacking = true;
 
         Vector3 originalPos = attacker.position;
 
@@ -22,6 +26,7 @@ public class CardAnimator : MonoBehaviour
         attackSequence.Append(attacker.DOMove(originalPos, returnDuration).SetEase(Ease.InOutSine));
         attackSequence.OnComplete(() =>
         {
+            isAttacking = false;
             RestoreLayout(attacker);
             onComplete?.Invoke();
         });

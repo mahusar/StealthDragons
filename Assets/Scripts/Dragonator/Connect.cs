@@ -21,15 +21,48 @@ public class Connect : MonoBehaviour
     [SerializeField] private TMP_Text versionText;
     [SerializeField] private TMP_Text versionNumberText;
     [SerializeField] private TMP_Text serverInfoText;
+    [SerializeField] private Button swapButton;
+    [SerializeField] private GameObject swapPanel;
+    [SerializeField] private TMP_Text swapDetailsText;
+    [SerializeField] private GameObject playerButton;
+    [SerializeField] private GameObject practiceButton;
+    [SerializeField] private GameObject settingsButton;
+    [SerializeField] private GameObject exitButton;
 
     // Stores the actual port returned by the server via GET_ROOMS
     private int _lastKnownServerPort = 7780;
+
+    private const float DisabledLabelAlpha = 0.35f;
+
+    private TMP_Text joinLabel;
+    private Color joinLabelColour = Color.white;
+
+    private bool menuHidden;
+    private bool playerVisibleBeforeSwap;
+    private bool practiceVisibleBeforeSwap;
+    private bool settingsVisibleBeforeSwap;
+    private bool exitVisibleBeforeSwap;
+
+    private bool swapSupported;
+    private string swapAsset = "XMR";
+    private string swapRate = "";
+    private string swapMinimum = "";
+    private string swapConfirmations = "";
 
     private void Awake()
     {
         connectButton.onClick.AddListener(OnConnectClicked);
         joinButton.onClick.AddListener(OnJoinClicked);
-        joinButton.gameObject.SetActive(false);
+
+        joinLabel = joinButton.GetComponentInChildren<TMP_Text>();
+        if (joinLabel != null) joinLabelColour = joinLabel.color;
+
+        joinButton.gameObject.SetActive(true);
+        SetJoinEnabled(false);
+
+        if (swapButton != null) swapButton.onClick.AddListener(OnSwapClicked);
+        ShowSwapOffer(false);
+        CloseSwapPanel();
 
         string saved = TorConfig.GetSavedOnionAddress();
         if (!string.IsNullOrEmpty(saved))
@@ -60,8 +93,10 @@ public class Connect : MonoBehaviour
         playersText.text = "";
         if (versionText != null) versionText.text = "";
         if (serverInfoText != null) serverInfoText.text = "";
+        CloseSwapPanel();
         connectButton.interactable = false;
-        joinButton.gameObject.SetActive(false);
+        SetJoinEnabled(false);
+        ShowSwapOffer(false);
 
         // ── Step 1: ping ──────────────────────────────────────────────────────
         bool serverOnline = false;
@@ -217,17 +252,33 @@ public class Connect : MonoBehaviour
 
         ShowServerInfo(serverInfo);
 
-        joinButton.gameObject.SetActive(true);
+        SetJoinEnabled(true);
+        ShowSwapOffer(swapSupported);
         connectButton.interactable = true;
+    }
+
+    private void SetJoinEnabled(bool enabled)
+    {
+        joinButton.interactable = enabled;
+
+        if (joinLabel == null) return;
+
+        joinLabel.color = enabled
+            ? joinLabelColour
+            : new Color(joinLabelColour.r, joinLabelColour.g, joinLabelColour.b,
+                        joinLabelColour.a * DisabledLabelAlpha);
     }
 
     private void ShowServerInfo(string wire)
     {
-        if (serverInfoText == null) return;
+        swapSupported = false;
+        swapRate = "";
+        swapMinimum = "";
+        swapConfirmations = "";
 
         if (string.IsNullOrEmpty(wire))
         {
-            serverInfoText.text = "Server settings unavailable";
+            if (serverInfoText != null) serverInfoText.text = "Server settings unavailable";
             return;
         }
 
@@ -248,6 +299,24 @@ public class Connect : MonoBehaviour
             if (isNumber && key == "bet") bet = number;
             if (isNumber && key == "fee") fee = number;
 
+            if (key == "swap")
+            {
+                ReadSwapOffer(value);
+                continue;
+            }
+
+            if (key == "swapmin")
+            {
+                swapMinimum = value;
+                continue;
+            }
+
+            if (key == "swapconf")
+            {
+                swapConfirmations = value;
+                continue;
+            }
+
             if (lines.Length > 0) lines.Append('\n');
             lines.Append(DescribeSetting(key, value));
         }
@@ -259,7 +328,104 @@ public class Connect : MonoBehaviour
                 lines.Append($"\nWinner receives: {Format(payout)} XST");
         }
 
-        serverInfoText.text = lines.Length > 0 ? lines.ToString() : "Server settings unavailable";
+        if (swapSupported)
+        {
+            if (lines.Length > 0) lines.Append('\n');
+            lines.Append($"Swap: {swapRate} XST per {swapAsset}");
+        }
+
+        if (serverInfoText != null)
+            serverInfoText.text = lines.Length > 0 ? lines.ToString() : "Server settings unavailable";
+    }
+
+    private void ReadSwapOffer(string value)
+    {
+        if (string.IsNullOrEmpty(value) ||
+            value.Equals("off", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("none", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        int at = value.IndexOf('@');
+        if (at > 0)
+        {
+            swapAsset = value.Substring(0, at).Trim().ToUpperInvariant();
+            swapRate = value.Substring(at + 1).Trim();
+        }
+        else
+        {
+            swapRate = value;
+        }
+
+        swapSupported = swapRate.Length > 0;
+    }
+
+    private void ShowSwapOffer(bool offered)
+    {
+        if (swapButton == null) return;
+
+        swapButton.gameObject.SetActive(offered);
+    }
+
+    private void OnSwapClicked()
+    {
+        if (swapPanel == null) return;
+
+        if (swapPanel.activeSelf)
+        {
+            CloseSwapPanel();
+            return;
+        }
+
+        if (swapDetailsText != null) swapDetailsText.text = DescribeSwapOffer();
+        swapPanel.SetActive(true);
+        HideMenuForSwap(true);
+    }
+
+    private void CloseSwapPanel()
+    {
+        if (swapPanel != null) swapPanel.SetActive(false);
+        HideMenuForSwap(false);
+    }
+
+    private void HideMenuForSwap(bool hidden)
+    {
+        if (hidden == menuHidden) return;
+        menuHidden = hidden;
+
+        if (hidden)
+        {
+            playerVisibleBeforeSwap = playerButton == null || playerButton.activeSelf;
+            practiceVisibleBeforeSwap = practiceButton == null || practiceButton.activeSelf;
+            settingsVisibleBeforeSwap = settingsButton == null || settingsButton.activeSelf;
+            exitVisibleBeforeSwap = exitButton == null || exitButton.activeSelf;
+
+            if (playerButton != null) playerButton.SetActive(false);
+            if (practiceButton != null) practiceButton.SetActive(false);
+            if (settingsButton != null) settingsButton.SetActive(false);
+            if (exitButton != null) exitButton.SetActive(false);
+
+            return;
+        }
+
+        if (playerButton != null) playerButton.SetActive(playerVisibleBeforeSwap);
+        if (practiceButton != null) practiceButton.SetActive(practiceVisibleBeforeSwap);
+        if (settingsButton != null) settingsButton.SetActive(settingsVisibleBeforeSwap);
+        if (exitButton != null) exitButton.SetActive(exitVisibleBeforeSwap);
+    }
+
+    private string DescribeSwapOffer()
+    {
+        if (!swapSupported) return "This server does not offer swapping.";
+
+        StringBuilder sb = new StringBuilder();
+        sb.Append($"Swap {swapAsset} for XST\n\n");
+        sb.Append($"Rate: {swapRate} XST per {swapAsset}");
+
+        if (swapMinimum.Length > 0) sb.Append($"\nMinimum: {swapMinimum} {swapAsset}");
+        if (swapConfirmations.Length > 0) sb.Append($"\nConfirmations required: {swapConfirmations}");
+
+        sb.Append("\n\nDeposits are not enabled on this client yet.");
+        return sb.ToString();
     }
 
     private static string Format(decimal value)
@@ -287,7 +453,7 @@ public class Connect : MonoBehaviour
         string address = TorConfig.GetSavedOnionAddress();
         if (string.IsNullOrEmpty(address)) return;
 
-        joinButton.interactable = false;
+        SetJoinEnabled(false);
         connectButton.interactable = false;
 
         var manager = NetworkManager.singleton as XSTDragonNetworkManager;

@@ -53,6 +53,8 @@ public static class ServerBanner
 
         printed = true;
 
+        AddonLoader.EnsureLoaded();
+
         try { Console.OutputEncoding = new UTF8Encoding(false); }
         catch (Exception) { }
 
@@ -89,6 +91,8 @@ public static class ServerBanner
         Hints(sb, stealth.WalletHints);
         Row(sb, colour, "ports", $"game {TorConfig.GamePort}   matchmaker {TorConfig.MatchmakerPort}");
         Row(sb, colour, "data", Application.persistentDataPath);
+        Row(sb, colour, "addons", AddonLoader.StatusLine);
+        Hints(sb, AddonLoader.Hints);
         sb.AppendLine();
 
         Console.WriteLine(sb.ToString());
