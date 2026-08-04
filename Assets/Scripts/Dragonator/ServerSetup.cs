@@ -123,6 +123,8 @@ public static class ServerSetup
     {
         foreach (IServerOption option in ServerOptions.All)
         {
+            if (!ServerOptions.ShouldAsk(option)) continue;
+
             while (true)
             {
                 Console.Write("   " + option.PromptText + " [" + option.DescribeCurrent() + "]: ");

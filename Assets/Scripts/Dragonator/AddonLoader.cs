@@ -90,6 +90,15 @@ public static class AddonLoader
         try
         {
             Assembly assembly = Assembly.LoadFrom(file);
+
+            int needs = NeedsApi(assembly);
+            if (needs > DragonatorApi.Version)
+            {
+                failures.Add(shown + ": needs Dragonator API " + needs + ", this build has " +
+                             DragonatorApi.Version + " — update Dragonator");
+                return;
+            }
+
             int added = RegisterOptions(assembly, shown);
 
             if (added == 0)
@@ -106,6 +115,30 @@ public static class AddonLoader
         }
     }
 
+    private static int NeedsApi(Assembly assembly)
+    {
+        try
+        {
+            object[] found = assembly.GetCustomAttributes(typeof(AssemblyMetadataAttribute), false);
+
+            foreach (object item in found)
+            {
+                AssemblyMetadataAttribute meta = item as AssemblyMetadataAttribute;
+                if (meta == null) continue;
+                if (!string.Equals(meta.Key, DragonatorApi.RequirementKey, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                int needs;
+                if (int.TryParse(meta.Value, out needs)) return needs;
+            }
+        }
+        catch (Exception)
+        {
+        }
+
+        return 1;
+    }
+
     private static int RegisterOptions(Assembly assembly, string shown)
     {
         Type[] types;
@@ -119,7 +152,7 @@ public static class AddonLoader
             failures.Add(shown + ": built against a different Dragonator version");
         }
 
-        int added = 0;
+        List<IServerOption> found = new List<IServerOption>();
 
         foreach (Type type in types)
         {
@@ -132,8 +165,7 @@ public static class AddonLoader
                 IServerOption option = Activator.CreateInstance(type) as IServerOption;
                 if (option == null) continue;
 
-                ServerOptions.Register(option);
-                added++;
+                found.Add(option);
             }
             catch (Exception e)
             {
@@ -141,7 +173,34 @@ public static class AddonLoader
             }
         }
 
-        return added;
+        Sort(found);
+
+        foreach (IServerOption option in found) ServerOptions.Register(option);
+
+        return found.Count;
+    }
+
+    private static void Sort(List<IServerOption> options)
+    {
+        int[] keys = new int[options.Count];
+        for (int i = 0; i < options.Count; i++) keys[i] = ServerOptions.OrderOf(options[i]);
+
+        for (int i = 1; i < options.Count; i++)
+        {
+            int key = keys[i];
+            IServerOption option = options[i];
+            int j = i - 1;
+
+            while (j >= 0 && keys[j] > key)
+            {
+                keys[j + 1] = keys[j];
+                options[j + 1] = options[j];
+                j--;
+            }
+
+            keys[j + 1] = key;
+            options[j + 1] = option;
+        }
     }
 
     private static string Describe(Assembly assembly)

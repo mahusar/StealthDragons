@@ -13,8 +13,8 @@
   <Project Path="SimpleWebTransport.csproj" />
   <Project Path="Assembly-CSharp-firstpass.csproj" />
   <Project Path="Mirror.Authenticators.csproj" />
+  <Project Path="Dragonator.Api.csproj" />
   <Project Path="EncryptionTransportEditor.csproj" />
   <Project Path="Telepathy.csproj" />
-  <Project Path="Dragonator.Api.csproj" />
   <Project Path="Mirror.CompilerSymbols.csproj" />
 </Solution>

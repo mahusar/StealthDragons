@@ -86,20 +86,68 @@ public static class ServerOptions
 
     public static List<string> DescribeExternal()
     {
-        List<IServerOption> extras = External;
+        List<IServerOption> shown = new List<IServerOption>();
+        foreach (IServerOption option in External)
+            if (ShouldShow(option)) shown.Add(option);
+
         List<string> lines = new List<string>();
         int width = 0;
 
-        foreach (IServerOption option in extras)
+        foreach (IServerOption option in shown)
         {
             int length = Label(option).Length;
             if (length > width) width = length;
         }
 
-        foreach (IServerOption option in extras)
+        foreach (IServerOption option in shown)
             lines.Add(Label(option).PadRight(width + 3) + Describe(option));
 
         return lines;
+    }
+
+    public static int OrderOf(IServerOption option)
+    {
+        IServerOptionListing listing = option as IServerOptionListing;
+        if (listing == null) return 0;
+
+        try
+        {
+            return listing.Order;
+        }
+        catch (System.Exception)
+        {
+            return 0;
+        }
+    }
+
+    public static bool ShouldAsk(IServerOption option)
+    {
+        IServerOptionListing listing = option as IServerOptionListing;
+        if (listing == null) return true;
+
+        try
+        {
+            return listing.Ask;
+        }
+        catch (System.Exception)
+        {
+            return true;
+        }
+    }
+
+    public static bool ShouldShow(IServerOption option)
+    {
+        IServerOptionListing listing = option as IServerOptionListing;
+        if (listing == null) return true;
+
+        try
+        {
+            return listing.Show;
+        }
+        catch (System.Exception)
+        {
+            return true;
+        }
     }
 
     public static string ToWire()
