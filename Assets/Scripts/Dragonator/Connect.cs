@@ -24,6 +24,9 @@ public class Connect : MonoBehaviour
     [SerializeField] private Button swapButton;
     [SerializeField] private GameObject swapPanel;
     [SerializeField] private TMP_Text swapDetailsText;
+    [SerializeField] private TMP_InputField swapAddressInput;
+    [SerializeField] private Button swapSubmitButton;
+    [SerializeField] private TMP_Text swapResultText;
     [SerializeField] private GameObject playerButton;
     [SerializeField] private GameObject practiceButton;
     [SerializeField] private GameObject settingsButton;
@@ -48,6 +51,8 @@ public class Connect : MonoBehaviour
     private string swapRate = "";
     private string swapMinimum = "";
     private string swapConfirmations = "";
+    private int swapPort;
+    private bool swapRequestRunning;
 
     private void Awake()
     {
@@ -61,6 +66,7 @@ public class Connect : MonoBehaviour
         SetJoinEnabled(false);
 
         if (swapButton != null) swapButton.onClick.AddListener(OnSwapClicked);
+        if (swapSubmitButton != null) swapSubmitButton.onClick.AddListener(OnSwapSubmitClicked);
         ShowSwapOffer(false);
         CloseSwapPanel();
 
@@ -219,7 +225,7 @@ public class Connect : MonoBehaviour
         }
 
         // ── Step 4: GET_SERVERINFO — how this server is configured ───────────
-        string serverInfo = "";
+        string serverInfo = null;
         done = false;
 
         var thread4 = new System.Threading.Thread(() =>
@@ -236,13 +242,13 @@ public class Connect : MonoBehaviour
                 using (var reader = new StreamReader(stream, Encoding.UTF8))
                 {
                     writer.WriteLine("GET_SERVERINFO");
-                    serverInfo = reader.ReadLine() ?? "";
+                    serverInfo = reader.ReadLine();
                 }
             }
             catch (Exception e)
             {
                 Debug.LogWarning($"[Connect] Server info fetch failed: {e.Message}");
-                serverInfo = "";
+                serverInfo = null;
             }
             finally { done = true; }
         });
@@ -275,10 +281,17 @@ public class Connect : MonoBehaviour
         swapRate = "";
         swapMinimum = "";
         swapConfirmations = "";
+        swapPort = 0;
 
-        if (string.IsNullOrEmpty(wire))
+        if (wire == null)
         {
             if (serverInfoText != null) serverInfoText.text = "Server settings unavailable";
+            return;
+        }
+
+        if (wire.Trim().Length == 0)
+        {
+            if (serverInfoText != null) serverInfoText.text = "Free match — no bet, no fee";
             return;
         }
 
@@ -317,9 +330,20 @@ public class Connect : MonoBehaviour
                 continue;
             }
 
+            if (key == "swapport")
+            {
+                int port;
+                if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out port) &&
+                    port > 0 && port <= 65535)
+                    swapPort = port;
+                continue;
+            }
+
             if (lines.Length > 0) lines.Append('\n');
             lines.Append(DescribeSetting(key, value));
         }
+
+        swapSupported = swapSupported && swapPort > 0;
 
         if (bet > 0m && fee >= 0m)
         {
@@ -377,6 +401,10 @@ public class Connect : MonoBehaviour
         }
 
         if (swapDetailsText != null) swapDetailsText.text = DescribeSwapOffer();
+        if (swapResultText != null) swapResultText.text = "";
+        if (swapAddressInput != null) swapAddressInput.text = "";
+        SetSwapFormEnabled(true);
+
         swapPanel.SetActive(true);
         HideMenuForSwap(true);
     }
@@ -418,13 +446,119 @@ public class Connect : MonoBehaviour
         if (!swapSupported) return "This server does not offer swapping.";
 
         StringBuilder sb = new StringBuilder();
-        sb.Append($"Swap {swapAsset} for XST\n\n");
+        sb.Append($"Swap {swapAsset} for XST\n");
         sb.Append($"Rate: {swapRate} XST per {swapAsset}");
 
-        if (swapMinimum.Length > 0) sb.Append($"\nMinimum: {swapMinimum} {swapAsset}");
-        if (swapConfirmations.Length > 0) sb.Append($"\nConfirmations required: {swapConfirmations}");
+        if (swapMinimum.Length > 0) sb.Append($"   Minimum: {swapMinimum} {swapAsset}");
+        if (swapConfirmations.Length > 0) sb.Append($"   Confirmations: {swapConfirmations}");
 
-        sb.Append("\n\nDeposits are not enabled on this client yet.");
+        sb.Append("\n\nEnter an XST address you own. The rate is locked when the deposit address is issued.");
+        return sb.ToString();
+    }
+
+    private void SetSwapFormEnabled(bool enabled)
+    {
+        if (swapAddressInput != null) swapAddressInput.interactable = enabled;
+        if (swapSubmitButton != null) swapSubmitButton.interactable = enabled;
+    }
+
+    private void OnSwapSubmitClicked()
+    {
+        if (swapRequestRunning) return;
+
+        if (!swapSupported || swapPort <= 0)
+        {
+            if (swapResultText != null) swapResultText.text = "This server is not offering swaps right now.";
+            return;
+        }
+
+        string payoutAddress = swapAddressInput == null ? "" : swapAddressInput.text.Trim();
+        if (payoutAddress.Length == 0)
+        {
+            if (swapResultText != null) swapResultText.text = "Enter the XST address you want the coins sent to.";
+            return;
+        }
+
+        string onion = TorConfig.GetSavedOnionAddress();
+        if (string.IsNullOrEmpty(onion))
+        {
+            if (swapResultText != null) swapResultText.text = "Connect to a server first.";
+            return;
+        }
+
+        StartCoroutine(RequestDepositAddress(onion, payoutAddress));
+    }
+
+    private IEnumerator RequestDepositAddress(string onion, string payoutAddress)
+    {
+        swapRequestRunning = true;
+        SetSwapFormEnabled(false);
+        if (swapResultText != null) swapResultText.text = "Asking the server for a deposit address...";
+
+        string reply = "";
+        bool done = false;
+        int port = swapPort;
+
+        var thread = new System.Threading.Thread(() =>
+        {
+            try
+            {
+                var tcp = new TcpClient();
+                tcp.ConnectThroughProxyAsync(TorConfig.SocksHost, TorConfig.SocksPort, onion, port)
+                    .GetAwaiter().GetResult();
+
+                using (tcp)
+                using (var stream = tcp.GetStream())
+                using (var writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true })
+                using (var reader = new StreamReader(stream, Encoding.UTF8))
+                {
+                    writer.WriteLine($"SWAP_NEW|{payoutAddress}");
+                    reply = reader.ReadLine() ?? "";
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[Connect] Swap request failed: {e.Message}");
+                reply = "";
+            }
+            finally { done = true; }
+        });
+        thread.IsBackground = true;
+        thread.Start();
+        while (!done) yield return null;
+
+        if (swapResultText != null) swapResultText.text = DescribeSwapReply(reply, payoutAddress);
+
+        SetSwapFormEnabled(true);
+        swapRequestRunning = false;
+    }
+
+    private string DescribeSwapReply(string reply, string payoutAddress)
+    {
+        if (string.IsNullOrEmpty(reply))
+            return "The swap desk did not answer. Try again in a moment.";
+
+        string[] parts = reply.Split('|');
+
+        if (parts[0] == "ERROR")
+            return parts.Length > 1 ? $"Refused: {parts[1]}" : "The swap desk refused the request.";
+
+        if (parts[0] != "OK" || parts.Length < 2)
+            return "The swap desk sent something this client did not understand.";
+
+        string deposit = parts[1];
+        string rate = parts.Length > 2 ? parts[2] : swapRate;
+        string minimum = parts.Length > 3 ? parts[3] : swapMinimum;
+        string confirmations = parts.Length > 4 ? parts[4] : swapConfirmations;
+
+        StringBuilder sb = new StringBuilder();
+        sb.Append($"Send {swapAsset} to this address, yours alone:\n{deposit}\n\n");
+        sb.Append($"Locked at {rate} XST per {swapAsset}");
+
+        if (minimum.Length > 0) sb.Append($"   Send at least {minimum} {swapAsset}");
+        if (confirmations.Length > 0) sb.Append($"\nXST arrives after {confirmations} confirmations");
+
+        sb.Append($"\nXST goes to {payoutAddress}");
         return sb.ToString();
     }
 

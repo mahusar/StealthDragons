@@ -10,13 +10,12 @@ public static class ServerSetup
     private const string ForceFlag = "-forcesetup";
     private const string DropLogFlag = "-nosetuplog";
     private const string FeeAlias = "-hostfee";
-    private const string RpcConfigFile = "rpc.conf";
     private const string StartPrefix = "   starting server — ";
 
     private static bool ran;
     private static Gate gate;
 
-    public static bool WalletReady { get; private set; }
+    public static bool Ready { get; private set; }
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSplashScreen)]
     private static void Hold()
@@ -54,35 +53,153 @@ public static class ServerSetup
         if (ran) return;
         ran = true;
 
-        WalletReady = HasWalletCredentials();
-        if (!WalletReady)
-        {
-            Console.WriteLine("   no usable " + RpcConfigFile + " in " + Application.persistentDataPath);
-            Console.WriteLine("   this server cannot take bets or pay out, so it will not start.");
-            Console.WriteLine("   running as a different user than the one that owns rpc.conf does this.");
-            Console.WriteLine();
-            return;
-        }
-
         ServerOptions.ApplyDefaults();
 
-        if (ApplyCommandLine())
+        string reason = Resolve();
+
+        if (!Verify())
         {
-            Announce("command line");
+            Ready = false;
             return;
         }
 
-        if (HasFlag(SkipFlag))
+        Ready = true;
+        Announce(reason);
+    }
+
+    private static bool Verify()
+    {
+        foreach (IServerWallet wallet in AddonLoader.Wallets)
         {
-            Announce("setup skipped");
-            return;
+            if (!Required(wallet)) continue;
+
+            Console.Write("   checking " + Describe(wallet) + "... ");
+
+            string problem;
+            bool ok;
+
+            try
+            {
+                ok = wallet.Check(out problem);
+            }
+            catch (Exception e)
+            {
+                ok = false;
+                problem = e.Message;
+            }
+
+            if (ok)
+            {
+                Console.WriteLine(string.IsNullOrEmpty(problem) ? "ok" : problem);
+                continue;
+            }
+
+            Console.WriteLine("FAILED");
+            Console.WriteLine("     " + (string.IsNullOrEmpty(problem) ? "no detail" : problem));
+            Console.WriteLine();
+
+            if (!IsInteractive() || HasFlag(SkipFlag))
+            {
+                Console.WriteLine("   " + Named(wallet) + " cannot reach " + Describe(wallet) + ", so it will not start.");
+                Console.WriteLine("   fix it, or start a free server instead.");
+                Console.WriteLine();
+                return false;
+            }
+
+            Console.Write("   run as a free server instead? [y]: ");
+
+            string answer;
+            try
+            {
+                answer = ReadLine();
+            }
+            catch (Aborted)
+            {
+                answer = "y";
+            }
+
+            Console.WriteLine();
+
+            if (answer.Length > 0 && !answer.StartsWith("y", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine("   not starting.");
+                Console.WriteLine();
+                return false;
+            }
+
+            UseFree();
+            return true;
         }
 
-        if (!IsInteractive())
+        return true;
+    }
+
+    private static void UseFree()
+    {
+        foreach (IServerWallet wallet in AddonLoader.Wallets)
         {
-            Announce("no console attached, default profile");
-            return;
+            try
+            {
+                wallet.UseFree();
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("   " + Named(wallet) + " could not be switched to free (" + e.Message + ").");
+            }
         }
+    }
+
+    private static bool Chargeable()
+    {
+        foreach (IServerWallet wallet in AddonLoader.Wallets)
+            if (Required(wallet)) return true;
+
+        return false;
+    }
+
+    private static bool Required(IServerWallet wallet)
+    {
+        try
+        {
+            return wallet.Required;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    private static string Describe(IServerWallet wallet)
+    {
+        try
+        {
+            return wallet.Needs ?? "its wallet";
+        }
+        catch (Exception)
+        {
+            return "its wallet";
+        }
+    }
+
+    private static string Named(IServerWallet wallet)
+    {
+        try
+        {
+            return wallet.Name ?? "an add-on";
+        }
+        catch (Exception)
+        {
+            return "an add-on";
+        }
+    }
+
+    private static string Resolve()
+    {
+        if (ApplyCommandLine()) return "command line";
+
+        if (HasFlag(SkipFlag)) return "setup skipped";
+
+        if (!IsInteractive()) return "no console attached, default profile";
 
         try
         {
@@ -100,23 +217,57 @@ public static class ServerSetup
             ServerOptions.ApplyDefaults();
         }
 
-        Announce(null);
+        return null;
     }
 
     private static void Prompt()
     {
+        if (!AnyToAsk()) return;
+
         Console.WriteLine("   Dragonator setup");
         Console.WriteLine();
-        Console.WriteLine("     1  no host fee");
-        Console.WriteLine("     2  set a host fee and other options");
+        Console.WriteLine("     1  free to play");
+
+        if (AddonLoader.Wallets.Count == 0)
+        {
+            Console.WriteLine("     2  setup add-ons");
+        }
+        else
+        {
+            Console.WriteLine("     2  setup add-ons:");
+
+            int width = 0;
+            foreach (IServerWallet wallet in AddonLoader.Wallets)
+            {
+                int length = Named(wallet).Length;
+                if (length > width) width = length;
+            }
+
+            foreach (IServerWallet wallet in AddonLoader.Wallets)
+                Console.WriteLine("          " + Named(wallet).PadRight(width) + " - " + Describe(wallet));
+        }
+
         Console.WriteLine();
         Console.Write("   select [1]: ");
 
         string choice = ReadLine();
         Console.WriteLine();
 
-        if (choice == "2") RunCustom();
-        else ServerOptions.ApplyDefaults();
+        if (choice == "2")
+        {
+            RunCustom();
+            return;
+        }
+
+        UseFree();
+    }
+
+    private static bool AnyToAsk()
+    {
+        foreach (IServerOption option in ServerOptions.All)
+            if (ServerOptions.ShouldAsk(option)) return true;
+
+        return false;
     }
 
     private static void RunCustom()
@@ -138,41 +289,6 @@ public static class ServerSetup
         }
 
         Console.WriteLine();
-    }
-
-    private static bool HasWalletCredentials()
-    {
-        try
-        {
-            string path = Path.Combine(Application.persistentDataPath, RpcConfigFile);
-            if (!File.Exists(path)) return false;
-
-            bool user = false;
-            bool password = false;
-            bool url = false;
-
-            foreach (string line in File.ReadAllLines(path))
-            {
-                string trimmed = line.Trim();
-                if (trimmed.Length == 0 || trimmed.StartsWith("#")) continue;
-
-                int split = trimmed.IndexOf('=');
-                if (split <= 0) continue;
-
-                string key = trimmed.Substring(0, split).Trim().ToLowerInvariant();
-                bool filled = trimmed.Substring(split + 1).Trim().Length > 0;
-
-                if (key == "rpcuser") user = filled;
-                else if (key == "rpcpassword") password = filled;
-                else if (key == "rpcurl") url = filled;
-            }
-
-            return user && password && url;
-        }
-        catch (Exception)
-        {
-            return false;
-        }
     }
 
     private static bool IsInteractive()
@@ -234,10 +350,16 @@ public static class ServerSetup
         ServerOptions.MarkConfigured();
 
         string suffix = string.IsNullOrEmpty(reason) ? "" : " (" + reason + ")";
-        Console.WriteLine(StartPrefix + ServerOptions.DescribeCore() + suffix);
+
+        List<string> external = ServerOptions.DescribeExternal();
+
+        string core = ServerOptions.DescribeCore();
+        if (core.Length == 0) core = Chargeable() ? "add-ons active" : "free to play";
+
+        Console.WriteLine(StartPrefix + core + suffix);
 
         string indent = new string(' ', StartPrefix.Length);
-        foreach (string line in ServerOptions.DescribeExternal())
+        foreach (string line in external)
             Console.WriteLine(indent + line);
 
         Console.WriteLine();

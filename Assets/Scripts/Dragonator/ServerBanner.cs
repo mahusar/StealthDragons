@@ -156,8 +156,8 @@ public static class ServerBanner
 
     private class StealthStatus
     {
-        public string Line;
-        public string WalletLine = "unknown   no reachable stealthd to ask";
+        public string Line = "unknown";
+        public string WalletLine = "unknown";
         public readonly List<string> WalletHints = new List<string>();
     }
 
@@ -171,11 +171,7 @@ public static class ServerBanner
 
         try
         {
-            if (!File.Exists(path))
-            {
-                status.Line = $"NOT CONFIGURED   no {RpcConfigFile} in {Application.persistentDataPath}";
-                return status;
-            }
+            if (!File.Exists(path)) return status;
 
             foreach (string line in File.ReadAllLines(path))
             {
@@ -193,31 +189,19 @@ public static class ServerBanner
                 else if (key == "rpcpassword") password = value;
             }
         }
-        catch (Exception e)
+        catch (Exception)
         {
-            status.Line = $"unreadable   ({RpcConfigFile}: {e.Message})";
             return status;
         }
 
         if (string.IsNullOrEmpty(url) || string.IsNullOrEmpty(user) || string.IsNullOrEmpty(password))
-        {
-            status.Line = $"INCOMPLETE   {RpcConfigFile} needs rpcuser, rpcpassword and rpcurl";
             return status;
-        }
 
         string host;
         int port;
-        if (!TryParseEndpoint(url, out host, out port))
-        {
-            status.Line = $"BAD rpcurl   cannot parse '{url}'";
-            return status;
-        }
+        if (!TryParseEndpoint(url, out host, out port)) return status;
 
-        if (!Reachable(host, port))
-        {
-            status.Line = $"NOT REACHABLE   nothing listening on {host}:{port}";
-            return status;
-        }
+        if (!Reachable(host, port)) return status;
 
         status.Line = $"connected   {host}:{port}";
         DescribeWallet(url, user, password, status);
@@ -233,14 +217,7 @@ public static class ServerBanner
             if (fallback.Result != null || fallback.Unauthorized) reply = fallback;
         }
 
-        if (reply.Result == null)
-        {
-            status.WalletLine = "unknown   " + reply.Failure;
-            if (reply.Unauthorized)
-                status.WalletHints.Add("rpcuser and rpcpassword in rpc.conf must match StealthCoin.conf");
-
-            return;
-        }
+        if (reply.Result == null) return;
 
         JToken until = reply.Result["unlocked_until"];
         if (until == null)
@@ -256,7 +233,6 @@ public static class ServerBanner
         }
         catch (Exception)
         {
-            status.WalletLine = "unknown   could not read unlocked_until";
             return;
         }
 

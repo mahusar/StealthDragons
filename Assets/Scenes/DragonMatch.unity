@@ -7653,7 +7653,6 @@ GameObject:
   m_Component:
   - component: {fileID: 1878583036}
   - component: {fileID: 1878583035}
-  - component: {fileID: 1878583037}
   - component: {fileID: 1878583034}
   m_Layer: 0
   m_Name: DragonatorWallet
@@ -7694,14 +7693,8 @@ MonoBehaviour:
   syncDirection: 0
   syncMode: 0
   syncInterval: 0
-  betAmountXst: 0.01
-  requiredConfirmations: 3
-  fundingTimeoutSeconds: 300
-  pollIntervalSeconds: 5
-  pollMinConfirmations: 0
   forfeitGraceSeconds: 5
-  skipFunding: 0
-  skipFundingReadyTimeout: 15
+  freeMatchReadyTimeout: 15
 --- !u!4 &1878583036
 Transform:
   m_ObjectHideFlags: 0
@@ -7717,18 +7710,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1878583037
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1878583033}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 2a935bb19c9ba764fbf028d376831c35, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
 --- !u!1 &1896008213
 GameObject:
   m_ObjectHideFlags: 0

@@ -53,8 +53,6 @@ public static class ServerOptions
     {
         if (bootstrapped) return;
         bootstrapped = true;
-        registered.Add(new BetAmountOption());
-        registered.Add(new HostFeeOption());
     }
 
     public static void ApplyDefaults()
@@ -76,6 +74,7 @@ public static class ServerOptions
         foreach (IServerOption option in registered)
         {
             if (external.Contains(option.Key)) continue;
+            if (!ShouldShow(option)) continue;
 
             if (sb.Length > 0) sb.Append(", ");
             sb.Append(Describe(option));

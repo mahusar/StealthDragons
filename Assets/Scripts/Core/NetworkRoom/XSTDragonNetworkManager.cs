@@ -60,16 +60,16 @@ public class XSTDragonNetworkManager : NetworkRoomManager
 
         if (!Utils.IsHeadless() || singleton != this) return;
 
-        if (!ServerSetup.WalletReady)
+        if (!ServerSetup.Ready)
         {
-            Debug.LogError("No usable rpc.conf; refusing to start a server that cannot pay out.");
+            Debug.LogError("Server setup did not finish; refusing to start.");
             Application.Quit(1);
             return;
         }
 
         if (!ServerOptions.Configured)
         {
-            Debug.LogError("Server setup did not complete; refusing to start with unconfirmed bet and fee settings.");
+            Debug.LogError("Server setup did not complete; refusing to start with unconfirmed settings.");
             return;
         }
 

@@ -28,10 +28,32 @@ public static class AddonLoader
     private static readonly List<string> failures = new List<string>();
 
     private static bool loaded;
+    private static IMatchEscrow escrow;
+    private static string escrowOwner;
+
+    private static readonly List<IServerWallet> wallets = new List<IServerWallet>();
+
+    public static List<IServerWallet> Wallets
+    {
+        get
+        {
+            EnsureLoaded();
+            return wallets;
+        }
+    }
 
     public static List<string> Hints
     {
         get { return failures; }
+    }
+
+    public static IMatchEscrow Escrow
+    {
+        get
+        {
+            EnsureLoaded();
+            return escrow;
+        }
     }
 
     public static string StatusLine
@@ -99,11 +121,15 @@ public static class AddonLoader
                 return;
             }
 
-            int added = RegisterOptions(assembly, shown);
+            Type[] types = TypesOf(assembly, shown);
 
-            if (added == 0)
+            int added = RegisterOptions(types, shown);
+            bool escrowAdded = RegisterEscrow(types, shown);
+            int walletsAdded = RegisterWallets(types, shown);
+
+            if (added == 0 && !escrowAdded && walletsAdded == 0)
             {
-                failures.Add(shown + ": no server option inside it");
+                failures.Add(shown + ": nothing Dragonator can use inside it");
                 return;
             }
 
@@ -139,19 +165,81 @@ public static class AddonLoader
         return 1;
     }
 
-    private static int RegisterOptions(Assembly assembly, string shown)
+    private static Type[] TypesOf(Assembly assembly, string shown)
     {
-        Type[] types;
         try
         {
-            types = assembly.GetTypes();
+            return assembly.GetTypes();
         }
         catch (ReflectionTypeLoadException e)
         {
-            types = e.Types;
             failures.Add(shown + ": built against a different Dragonator version");
+            return e.Types;
+        }
+    }
+
+    private static bool RegisterEscrow(Type[] types, string shown)
+    {
+        foreach (Type type in types)
+        {
+            if (type == null) continue;
+            if (type.IsAbstract || type.IsInterface) continue;
+            if (!typeof(IMatchEscrow).IsAssignableFrom(type)) continue;
+
+            if (escrow != null)
+            {
+                failures.Add(shown + ": a match escrow is already installed by " + escrowOwner +
+                             " — remove one of them");
+                return false;
+            }
+
+            try
+            {
+                IMatchEscrow found = Activator.CreateInstance(type) as IMatchEscrow;
+                if (found == null) continue;
+
+                escrow = found;
+                escrowOwner = shown;
+                return true;
+            }
+            catch (Exception e)
+            {
+                failures.Add(shown + " (" + type.Name + "): " + Shorten(e.Message));
+            }
         }
 
+        return false;
+    }
+
+    private static int RegisterWallets(Type[] types, string shown)
+    {
+        int added = 0;
+
+        foreach (Type type in types)
+        {
+            if (type == null) continue;
+            if (type.IsAbstract || type.IsInterface) continue;
+            if (!typeof(IServerWallet).IsAssignableFrom(type)) continue;
+
+            try
+            {
+                IServerWallet found = Activator.CreateInstance(type) as IServerWallet;
+                if (found == null) continue;
+
+                wallets.Add(found);
+                added++;
+            }
+            catch (Exception e)
+            {
+                failures.Add(shown + " (" + type.Name + "): " + Shorten(e.Message));
+            }
+        }
+
+        return added;
+    }
+
+    private static int RegisterOptions(Type[] types, string shown)
+    {
         List<IServerOption> found = new List<IServerOption>();
 
         foreach (Type type in types)
