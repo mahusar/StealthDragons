@@ -56,6 +56,27 @@ public static class AddonLoader
         }
     }
 
+    public static string Installed
+    {
+        get
+        {
+            EnsureLoaded();
+
+            string joined = "";
+
+            foreach (string name in names)
+            {
+                string clean = name.Replace(';', ' ').Replace('=', ' ').Replace(',', ' ').Trim();
+                if (clean.Length == 0) continue;
+
+                if (joined.Length > 0) joined += ",";
+                joined += clean;
+            }
+
+            return joined;
+        }
+    }
+
     public static string StatusLine
     {
         get
@@ -126,8 +147,9 @@ public static class AddonLoader
             int added = RegisterOptions(types, shown);
             bool escrowAdded = RegisterEscrow(types, shown);
             int walletsAdded = RegisterWallets(types, shown);
+            int directoriesAdded = RegisterDirectories(types, shown);
 
-            if (added == 0 && !escrowAdded && walletsAdded == 0)
+            if (added == 0 && !escrowAdded && walletsAdded == 0 && directoriesAdded == 0)
             {
                 failures.Add(shown + ": nothing Dragonator can use inside it");
                 return;
@@ -227,6 +249,33 @@ public static class AddonLoader
                 if (found == null) continue;
 
                 wallets.Add(found);
+                added++;
+            }
+            catch (Exception e)
+            {
+                failures.Add(shown + " (" + type.Name + "): " + Shorten(e.Message));
+            }
+        }
+
+        return added;
+    }
+
+    private static int RegisterDirectories(Type[] types, string shown)
+    {
+        int added = 0;
+
+        foreach (Type type in types)
+        {
+            if (type == null) continue;
+            if (type.IsAbstract || type.IsInterface) continue;
+            if (!typeof(IServerDirectory).IsAssignableFrom(type)) continue;
+
+            try
+            {
+                IServerDirectory found = Activator.CreateInstance(type) as IServerDirectory;
+                if (found == null) continue;
+
+                ServerDirectory.Register(found);
                 added++;
             }
             catch (Exception e)

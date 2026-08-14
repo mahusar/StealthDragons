@@ -180,8 +180,22 @@ public class MatchmakerServer : MonoBehaviour
         }
         else if (message == "GET_SERVERINFO")
         {
-            writer.WriteLine(ServerOptions.ToWire());
+            writer.WriteLine(ServerInfoWire());
         }
+        else if (message == "GET_SERVERS")
+        {
+            writer.WriteLine(ServerDirectory.ToWire());
+        }
+    }
+
+    static string ServerInfoWire()
+    {
+        string wire = ServerOptions.ToWire();
+        string addons = AddonLoader.Installed;
+
+        if (string.IsNullOrEmpty(addons)) return wire;
+
+        return string.IsNullOrEmpty(wire) ? "addons=" + addons : wire + ";addons=" + addons;
     }
 
     IEnumerator CleanupInactiveRooms()
