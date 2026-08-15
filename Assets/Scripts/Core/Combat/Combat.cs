@@ -69,18 +69,19 @@ public class Combat : NetworkBehaviour
 
                 if (gameManager != null)
                 {
-                    gameManager.RecordGameOutcome(player, false);
+                    bool survivorFound = false;
 
                     Player[] onlinePlayers = FindObjectsByType<Player>(FindObjectsSortMode.None);
                     foreach (Player p in onlinePlayers)
                     {
                         if (p != player && p.health > 0)
                         {
-                            gameManager.RecordGameOutcome(p, true);
+                            survivorFound = true;
+                            gameManager.ServerEndMatch(p, player, "defeat");
 
                             if (gameManager.practiceMode)
                             {
-                                Debug.Log($"Practice match won by {p.username} — no stake was taken, so no payout is sent.");
+                                Debug.Log($"Practice match won by {p.username} - no stake was taken, so no payout is sent.");
                             }
                             else if (wallet != null)
                             {
@@ -101,6 +102,12 @@ public class Combat : NetworkBehaviour
                             }
                             break;
                         }
+                    }
+
+                    if (!survivorFound)
+                    {
+                        Debug.LogWarning($"ServerChangeHealth: {player.username} was defeated with nobody left standing - recording the loss with no winner.");
+                        gameManager.ServerEndMatch(null, player, "defeat");
                     }
                 }
 

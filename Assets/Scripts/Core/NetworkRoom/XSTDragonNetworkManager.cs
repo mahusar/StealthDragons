@@ -97,7 +97,7 @@ public class XSTDragonNetworkManager : NetworkRoomManager
                 return true;
             }
         }
-        Debug.LogError("No available ports in range 7780–7877.");
+        Debug.LogError("No available ports in range 7780-7877.");
         return false;
     }
 
@@ -146,13 +146,13 @@ public class XSTDragonNetworkManager : NetworkRoomManager
         {
             if (PracticeMode.Active)
             {
-                Debug.LogWarning("PracticeMode is active — skipping wallet initialisation entirely.");
+                Debug.LogWarning("PracticeMode is active - skipping wallet initialisation entirely.");
 
                 PracticeMode practice = PracticeMode.Instance;
                 if (practice != null)
                     practice.OnGameplaySceneLoaded();
                 else
-                    Debug.LogError("PracticeMode.Active is set but Instance is missing — the bot will not spawn.");
+                    Debug.LogError("PracticeMode.Active is set but Instance is missing - the bot will not spawn.");
             }
             else
             {
@@ -181,7 +181,7 @@ public class XSTDragonNetworkManager : NetworkRoomManager
 
     public override void OnRoomServerPlayersReady()
     {
-        Debug.Log("All players ready — starting DragonMatch");
+        Debug.Log("All players ready - starting DragonMatch");
         ServerChangeScene(GameplayScene);
     }
 

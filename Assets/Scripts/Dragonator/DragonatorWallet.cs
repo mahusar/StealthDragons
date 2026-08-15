@@ -11,7 +11,7 @@ public class DragonatorWallet : NetworkBehaviour, IMatchEscrowHost
 
     [Header("Mid-match disconnect")]
     [Tooltip("Seconds a player who drops mid-match has before they forfeit. Kept short because " +
-             "the window cannot yet be used to rejoin — it is only a delay until session-token " +
+             "the window cannot yet be used to rejoin - it is only a delay until session-token " +
              "reconnect exists. Set 0 to forfeit immediately.")]
     [SerializeField] private float forfeitGraceSeconds = 5f;
 
@@ -69,7 +69,7 @@ public class DragonatorWallet : NetworkBehaviour, IMatchEscrowHost
 
         if (escrow == null)
         {
-            Debug.Log("[DragonatorWallet] No match escrow installed — matches are free: no stake is " +
+            Debug.Log("[DragonatorWallet] No match escrow installed - matches are free: no stake is " +
                       "collected and no payout is ever sent.");
             return;
         }
@@ -397,13 +397,46 @@ public class DragonatorWallet : NetworkBehaviour, IMatchEscrowHost
 
         if (stillHere > 1 || remaining == null) yield break;
 
-        Debug.LogWarning($"[DragonatorWallet] {leaver.name} did not return — " +
+        Debug.LogWarning($"[DragonatorWallet] {leaver.name} did not return - " +
                          $"{remaining.name} wins match {matchId} by forfeit.");
 
         if (escrow != null)
             Message(remaining.connectionId, true, "Your opponent forfeited - paying you the pot.");
 
+        ServerEndMatchByForfeit(remaining, leaver);
+
         PayWinner(remaining.conn);
+    }
+
+    [Server]
+    private void ServerEndMatchByForfeit(Seat remaining, Seat leaver)
+    {
+        GameManager gameManager = FindAnyObjectByType<GameManager>();
+        if (gameManager == null)
+        {
+            Debug.LogWarning("[DragonatorWallet] No GameManager to record the forfeit against.");
+            return;
+        }
+
+        Player winner = remaining?.conn?.identity != null
+            ? remaining.conn.identity.GetComponent<Player>()
+            : null;
+
+        Player loser = leaver?.conn?.identity != null
+            ? leaver.conn.identity.GetComponent<Player>()
+            : null;
+
+        gameManager.ServerEndMatch(winner, loser, "forfeit");
+    }
+
+    public string ReceiptStake()
+    {
+        if (escrow == null) return "free";
+
+        foreach (Seat seat in seats.Values)
+            if (!string.IsNullOrEmpty(seat.promptAmount)) return seat.promptAmount + " XST";
+
+        return "free";
     }
 
     [Server]
@@ -572,7 +605,7 @@ public class DragonatorWallet : NetworkBehaviour, IMatchEscrowHost
     [TargetRpc]
     private void TargetFundingMessage(NetworkConnectionToClient conn, bool success, string message)
     {
-        Debug.Log($"[DragonatorWallet] Funding message: {success} — {message}");
+        Debug.Log($"[DragonatorWallet] Funding message: {success} - {message}");
         BetUI.Instance?.ShowFundingMessage(success, message);
     }
 

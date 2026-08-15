@@ -1,10 +1,12 @@
-﻿using UnityEngine;
+﻿using System;
+using UnityEngine;
 using UnityEngine.UI;
 using Mirror;
 using TMPro;
 using DG.Tweening;
 using System.Collections;
 using System.Collections.Generic;
+using System.Text;
 
 public class GameManager : NetworkBehaviour
 {
@@ -42,6 +44,95 @@ public class GameManager : NetworkBehaviour
     private Image turnButtonImage;
     private Color turnButtonActiveColor = Color.white;
     [SyncVar, HideInInspector] public int turnCount = 1;
+
+    [Tooltip("Seconds the server waits for players to commit their shuffle seeds, and again for them to reveal.")]
+    public float shuffleSeedSeconds = 8f;
+
+    [SyncVar, HideInInspector] public string shuffleCommitment = "";
+    [SyncVar, HideInInspector] public string shuffleSeedCommitments = "";
+    [SyncVar, HideInInspector] public bool shuffleSealed = false;
+    [SyncVar, HideInInspector] public string shuffleContributions = "";
+    [SyncVar, HideInInspector] public string shuffleDeals = "";
+    [SyncVar(hook = nameof(OnShuffleRevealed)), HideInInspector] public string shuffleReveal = "";
+    [SyncVar(hook = nameof(OnReceiptSignatures)), HideInInspector] public string matchReceiptSignatures = "";
+    [SyncVar(hook = nameof(OnMatchReceipt)), HideInInspector] public string matchReceipt = "";
+
+    private readonly Dictionary<string, string> serverSignatures = new Dictionary<string, string>();
+    private long matchStartedUnix;
+    private bool matchEnded;
+    private bool witnessed;
+
+    public override void OnStartServer()
+    {
+        base.OnStartServer();
+
+        MatchFairness.Clear();
+        MatchFairness.Begin();
+        shuffleCommitment = MatchFairness.CommitmentHex;
+        shuffleSeedCommitments = "";
+        shuffleSealed = false;
+        shuffleContributions = "";
+        shuffleDeals = "";
+        shuffleReveal = "";
+        matchReceipt = "";
+        matchReceiptSignatures = "";
+        serverSignatures.Clear();
+        matchEnded = false;
+        witnessed = false;
+    }
+
+    [Server]
+    public void ServerRevealShuffle()
+    {
+        if (!MatchFairness.Settled) return;
+        if (!string.IsNullOrEmpty(shuffleReveal)) return;
+
+        ServerPublishDealtOrders();
+        shuffleReveal = MatchFairness.RevealHex;
+        Debug.Log("GameManager: revealed the shuffle seed " + shuffleReveal);
+    }
+
+    [Server]
+    public void ServerPublishDealtOrders()
+    {
+        shuffleDeals = MatchFairness.DealtOrdersText;
+    }
+
+    private void OnShuffleRevealed(string oldValue, string newValue)
+    {
+        if (string.IsNullOrEmpty(newValue)) return;
+
+        LocalShuffleProof.Published published = new LocalShuffleProof.Published
+        {
+            commitment = shuffleCommitment,
+            seedCommitments = shuffleSeedCommitments,
+            contributions = shuffleContributions,
+            deals = shuffleDeals,
+            reveal = newValue
+        };
+
+        LocalShuffleProof.Verify(published, ClientCollectOtherDeals());
+        RefreshOutcomeUI();
+    }
+
+    private List<LocalShuffleProof.PlayerDeal> ClientCollectOtherDeals()
+    {
+        List<LocalShuffleProof.PlayerDeal> others = new List<LocalShuffleProof.PlayerDeal>();
+
+        foreach (Deck deck in FindObjectsByType<Deck>(FindObjectsSortMode.None))
+        {
+            if (deck == null || deck.isLocalPlayer) continue;
+
+            others.Add(new LocalShuffleProof.PlayerDeal
+            {
+                netId = deck.netIdentity.netId,
+                username = deck.player != null ? deck.player.username : "",
+                composition = deck.StartingComposition()
+            });
+        }
+
+        return others;
+    }
 
     [Header("Turn Timer")]
     [Tooltip("Seconds a player gets per turn before the turn is passed automatically.")]
@@ -105,6 +196,224 @@ public class GameManager : NetworkBehaviour
     }
 
     [Server]
+    public void ServerEndMatch(Player winner, Player loser, string reason)
+    {
+        if (matchEnded)
+        {
+            Debug.LogWarning("GameManager: the match has already ended - ignoring.");
+            return;
+        }
+        matchEnded = true;
+
+        if (loser != null) RecordGameOutcome(loser, false);
+        if (winner != null) RecordGameOutcome(winner, true);
+
+        ServerRevealShuffle();
+
+        try
+        {
+            ServerPublishReceipt(winner, reason);
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"GameManager: the match receipt could not be built ({e.GetType().Name}: {e.Message}). The match result and any payout are unaffected.");
+        }
+    }
+
+    [Server]
+    private void ServerPublishReceipt(Player winner, string reason)
+    {
+        MatchReceipt receipt = new MatchReceipt
+        {
+            server = practiceMode ? "practice" : ServerBanner.OnionAddress(),
+            match = shuffleCommitment,
+            started = matchStartedUnix,
+            ended = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            seed = shuffleReveal,
+            mix = shuffleContributions,
+            result = winner != null ? winner.publicKey : "draw",
+            reason = reason,
+            stake = practiceMode ? "free" : ServerStakeDescription()
+        };
+
+        foreach (Player entry in FindObjectsByType<Player>(FindObjectsSortMode.None))
+        {
+            if (entry == null || string.IsNullOrEmpty(entry.publicKey)) continue;
+
+            receipt.seats.Add(new MatchReceipt.Seat
+            {
+                netId = entry.netId,
+                bot = entry.netIdentity == null || entry.netIdentity.connectionToClient == null,
+                publicKeyHex = entry.publicKey,
+                username = entry.username
+            });
+        }
+
+        if (receipt.seats.Count == 0)
+        {
+            Debug.LogWarning("GameManager: no player published an identity key, so this match gets no receipt.");
+            return;
+        }
+
+        serverSignatures.Clear();
+        matchReceiptSignatures = "";
+        matchReceipt = receipt.Canonical();
+
+        Debug.Log($"GameManager: published the match receipt, digest {receipt.DigestHex()}, {receipt.seats.Count} seat(s).");
+
+        ServerSignSeatsWeHoldKeysFor(receipt);
+    }
+
+    [Server]
+    private void ServerSignSeatsWeHoldKeysFor(MatchReceipt receipt)
+    {
+        bool anyBot = false;
+        foreach (MatchReceipt.Seat seat in receipt.seats)
+            if (seat.bot) anyBot = true;
+
+        if (!anyBot) return;
+
+        PlayerIdentity bot = PracticeMode.BotIdentity;
+        if (bot == null) return;
+
+        foreach (MatchReceipt.Seat seat in receipt.seats)
+        {
+            if (!seat.bot || seat.publicKeyHex != bot.PublicKeyHex) continue;
+
+            ServerRecordSignature(seat.publicKeyHex, bot.SignHex(receipt.Digest()));
+            Debug.Log("GameManager: signed the bot's seat with the key this server holds.");
+        }
+    }
+
+    [Server]
+    private string ServerStakeDescription()
+    {
+        DragonatorWallet wallet = FindAnyObjectByType<DragonatorWallet>();
+
+        return wallet != null ? wallet.ReceiptStake() : "free";
+    }
+
+    [Command(requiresAuthority = false)]
+    public void CmdSignReceipt(string signatureHex, NetworkConnectionToClient sender = null)
+    {
+        if (string.IsNullOrEmpty(matchReceipt)) return;
+
+        Player player = sender?.identity != null ? sender.identity.GetComponent<Player>() : null;
+        if (player == null || string.IsNullOrEmpty(player.publicKey))
+        {
+            Debug.LogWarning("GameManager: a receipt signature arrived from a connection with no identity - ignored.");
+            return;
+        }
+
+        MatchReceipt receipt = MatchReceipt.Parse(matchReceipt);
+        if (receipt == null) return;
+
+        if (!PlayerIdentity.Verify(player.publicKey, receipt.Digest(), signatureHex))
+        {
+            Debug.LogWarning($"GameManager: {player.username} sent a receipt signature that does not verify - ignored.");
+            return;
+        }
+
+        ServerRecordSignature(player.publicKey, signatureHex);
+        Debug.Log($"GameManager: {player.username} signed the match receipt.");
+    }
+
+    [Server]
+    private void ServerRecordSignature(string publicKeyHex, string signatureHex)
+    {
+        serverSignatures[publicKeyHex] = signatureHex;
+
+        StringBuilder sb = new StringBuilder();
+        foreach (KeyValuePair<string, string> entry in serverSignatures)
+        {
+            if (sb.Length > 0) sb.Append(';');
+            sb.Append(entry.Key).Append(':').Append(entry.Value);
+        }
+
+        matchReceiptSignatures = sb.ToString();
+
+        ServerOfferToWitness();
+    }
+
+    [Server]
+    private void ServerOfferToWitness()
+    {
+        if (witnessed || string.IsNullOrEmpty(matchReceipt)) return;
+        if (!MatchWitness.Installed) return;
+        if (!ReceiptFullySigned()) return;
+
+        witnessed = true;
+        MatchWitness.Record(matchReceipt, matchReceiptSignatures, true);
+    }
+
+    private void OnReceiptSignatures(string oldValue, string newValue)
+    {
+        RefreshOutcomeUI();
+    }
+
+    private void RefreshOutcomeUI()
+    {
+        OutcomeUI outcomeUI = FindAnyObjectByType<OutcomeUI>();
+        if (outcomeUI != null) outcomeUI.ShowFairness();
+    }
+
+    private void OnMatchReceipt(string oldValue, string newValue)
+    {
+        RefreshOutcomeUI();
+
+        if (string.IsNullOrEmpty(newValue) || !isClient) return;
+
+        MatchReceipt receipt = MatchReceipt.Parse(newValue);
+        if (receipt == null)
+        {
+            Debug.LogWarning("GameManager: the match receipt could not be read on this client.");
+            return;
+        }
+
+        string mine = PlayerIdentity.Mine.PublicKeyHex;
+
+        foreach (MatchReceipt.Seat seat in receipt.seats)
+        {
+            if (seat.publicKeyHex != mine) continue;
+
+            if (!LocalShuffleProof.Checked)
+            {
+                Debug.LogError("GameManager: refusing to sign the match receipt - this client never checked the match.");
+                return;
+            }
+
+            if (!LocalShuffleProof.Passed)
+            {
+                Debug.LogError($"GameManager: REFUSING to sign the match receipt - {LocalShuffleProof.Result}");
+                return;
+            }
+
+            CmdSignReceipt(PlayerIdentity.Mine.SignHex(receipt.Digest()));
+            Debug.Log($"GameManager: signed the match receipt {receipt.DigestHex()}.");
+            return;
+        }
+    }
+
+    public bool ReceiptFullySigned()
+    {
+        MatchReceipt receipt = MatchReceipt.Parse(matchReceipt);
+        if (receipt == null) return false;
+
+        Dictionary<string, string> signatures = new Dictionary<string, string>();
+
+        if (!string.IsNullOrEmpty(matchReceiptSignatures))
+        {
+            foreach (string part in matchReceiptSignatures.Split(';'))
+            {
+                string[] bits = part.Split(':');
+                if (bits.Length == 2) signatures[bits[0]] = bits[1];
+            }
+        }
+
+        return receipt.FullySigned(signatures);
+    }
+
+    [Server]
     public void ShowDisconnectMessageOnClients(string message)
     {
         RpcShowDisconnectMessage(message);
@@ -131,21 +440,21 @@ public class GameManager : NetworkBehaviour
     {
         if (practiceMode)
         {
-            Debug.LogWarning("GameManager: starting a PRACTICE match — no stake, no payout.");
+            Debug.LogWarning("GameManager: starting a PRACTICE match - no stake, no payout.");
         }
         else
         {
             DragonatorWallet wallet = FindAnyObjectByType<DragonatorWallet>();
             if (wallet == null || !wallet.BothPlayersValidated())
             {
-                Debug.LogWarning("GameManager: Cannot start — bets not validated yet.");
+                Debug.LogWarning("GameManager: Cannot start - bets not validated yet.");
                 return;
             }
         }
 
         if (currentTurnNetId != 0)
         {
-            Debug.LogWarning("GameManager: StartGameForPlayer called twice — ignoring.");
+            Debug.LogWarning("GameManager: StartGameForPlayer called twice - ignoring.");
             return;
         }
 
@@ -159,8 +468,71 @@ public class GameManager : NetworkBehaviour
             return;
         }
 
+        if (dealStarted)
+        {
+            Debug.LogWarning("GameManager: the match is already under way - ignoring.");
+            return;
+        }
+        dealStarted = true;
+
+        StartCoroutine(ServerSealSeedsThenDeal(firstPlayerIdentity, first));
+    }
+
+    private bool dealStarted;
+
+    [Server]
+    private int ServerExpectedContributors()
+    {
+        int expected = 0;
+
+        foreach (Player entry in FindObjectsByType<Player>(FindObjectsSortMode.None))
+            if (entry.netIdentity != null && entry.netIdentity.connectionToClient != null) expected++;
+
+        return expected;
+    }
+
+    [Server]
+    private IEnumerator ServerSealSeedsThenDeal(NetworkIdentity firstPlayerIdentity, Player first)
+    {
+        int expected = ServerExpectedContributors();
+        float deadline = Time.realtimeSinceStartup + shuffleSeedSeconds;
+
+        while (Time.realtimeSinceStartup < deadline && MatchFairness.Committed < expected)
+            yield return null;
+
+        if (MatchFairness.Committed < expected)
+            Debug.LogWarning($"GameManager: only {MatchFairness.Committed} of {expected} player(s) committed a seed in time - sealing anyway.");
+
+        MatchFairness.SealSeeds();
+        shuffleSeedCommitments = MatchFairness.SeedCommitmentsHex;
+        shuffleSealed = true;
+
+        deadline = Time.realtimeSinceStartup + shuffleSeedSeconds;
+
+        while (Time.realtimeSinceStartup < deadline && !MatchFairness.AllRevealed)
+            yield return null;
+
+        if (!MatchFairness.AllRevealed)
+            Debug.LogWarning("GameManager: not every committed seed was revealed in time - dealing without the missing ones.");
+
+        ServerDealEveryHand();
         ServerBeginTurnFor(first);
         RpcStartGame(firstPlayerIdentity);
+    }
+
+    [Server]
+    private void ServerDealEveryHand()
+    {
+        MatchFairness.Settle();
+        matchStartedUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        shuffleContributions = MatchFairness.ContributionsHex;
+
+        Player[] players = FindObjectsByType<Player>(FindObjectsSortMode.None);
+
+        foreach (Player entry in players)
+            if (entry.deck != null) entry.deck.ServerShuffleAndDeal();
+
+        Debug.Log($"GameManager: dealt {players.Length} opening hand(s) from the settled shuffle.");
     }
 
     [Server]
@@ -206,7 +578,7 @@ public class GameManager : NetworkBehaviour
             return;
         }
 
-        Debug.Log($"GameManager: {current.username} ran out of time after {turnSeconds}s — passing the turn.");
+        Debug.Log($"GameManager: {current.username} ran out of time after {turnSeconds}s - passing the turn.");
         ServerEndTurn(current);
     }
 
@@ -345,7 +717,7 @@ public class GameManager : NetworkBehaviour
     {
         if (cardObject == null)
         {
-            Debug.LogWarning("GameManager: CmdOnFieldCardHover rejected — null card object.");
+            Debug.LogWarning("GameManager: CmdOnFieldCardHover rejected - null card object.");
             return;
         }
 
@@ -388,7 +760,7 @@ public class GameManager : NetworkBehaviour
     {
         if (!IsTurnOf(sender))
         {
-            Debug.LogWarning($"GameManager: CmdEndTurn rejected — connection {sender?.connectionId} is not the current turn holder.");
+            Debug.LogWarning($"GameManager: CmdEndTurn rejected - connection {sender?.connectionId} is not the current turn holder.");
             return;
         }
 
@@ -406,14 +778,14 @@ public class GameManager : NetworkBehaviour
 
         if (!IsTurnOf(current))
         {
-            Debug.LogWarning($"GameManager: ServerEndTurn rejected — {current.username} is not the current turn holder.");
+            Debug.LogWarning($"GameManager: ServerEndTurn rejected - {current.username} is not the current turn holder.");
             return;
         }
 
         Player next = ServerFindOpponentOf(current);
         if (next == null)
         {
-            Debug.LogWarning("GameManager: ServerEndTurn — no living opponent to pass the turn to.");
+            Debug.LogWarning("GameManager: ServerEndTurn - no living opponent to pass the turn to.");
             return;
         }
 

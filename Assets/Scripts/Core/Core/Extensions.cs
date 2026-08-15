@@ -17,22 +17,6 @@ public static class Extensions
         return cardTemp;
     }
 
-    public static void Shuffle(this SyncListCard cards)
-    {
-        // Create new tempCardList
-        List<CardInfo> cardList = cards.ToList();
-
-        // Loop through all cards and randomize them
-        for (int i = 0; i < cards.Count; ++i)
-        {
-            // Return card between 0 and card 
-            int randomIndex = Random.Range(0, cardList.Count);
-            cards[i] = cardList[randomIndex];
-            cardList.RemoveAt(randomIndex); // Remove card from original deck
-        }
-        //Debug.LogError(cards[0].name); // For Debugging purposes to ensure that the cards are truly being randomized.
-    }
-
     public static bool CanTarget(this Target targetType, List<Target> targets)
     {
         // Whether or not this is an entity we can actually target

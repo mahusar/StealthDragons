@@ -11,12 +11,12 @@ public class BetUI : MonoBehaviour
     [Header("Panel")]
     [SerializeField] private GameObject betPanel;
 
-    [Header("Step 1 — payout address")]
+    [Header("Step 1 - payout address")]
     [SerializeField] private GameObject payoutStep;
     [SerializeField] private TMP_InputField payoutAddressInputField;
     [SerializeField] private Button submitButton;
 
-    [Header("Step 2 — deposit")]
+    [Header("Step 2 - deposit")]
     [SerializeField] private GameObject depositStep;
     [SerializeField] private TMP_Text depositAddressText;
     [SerializeField] private Button copyAddressButton;
@@ -189,7 +189,7 @@ public class BetUI : MonoBehaviour
         if (wallet != null)
             wallet.CmdSubmitPayoutAddress(payoutAddress);
         else
-            Debug.LogError("[BetUI] DragonatorWallet not found — cannot submit payout address.");
+            Debug.LogError("[BetUI] DragonatorWallet not found - cannot submit payout address.");
     }
 
     private void OnCopyAddressClicked()

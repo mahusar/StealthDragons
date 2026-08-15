@@ -12,6 +12,12 @@ public class OutcomeUI : MonoBehaviour
     [Header("Outcome")]
     [SerializeField] private TMP_Text statusText;
 
+    [Header("Fairness")]
+    [SerializeField] private TMP_Text fairnessText;
+    [SerializeField] private Color fairnessPassColor = new Color(0.45f, 0.85f, 0.45f);
+    [SerializeField] private Color fairnessPartialColor = new Color(0.95f, 0.8f, 0.35f);
+    [SerializeField] private Color fairnessFailColor = new Color(1f, 0.35f, 0.35f);
+
     [Header("Winner TXID")]
     [SerializeField] private GameObject txidPanel;
     [SerializeField] private TMP_InputField txidInputField;
@@ -53,14 +59,59 @@ public class OutcomeUI : MonoBehaviour
 
         if (localPlayerOutcome.username != null)
         {
-            outcomePanel.SetActive(true); 
+            outcomePanel.SetActive(true);
             statusText.text = localPlayerOutcome.isWinner ? "Victory" : "Defeat";
             statusText.color = localPlayerOutcome.isWinner ? Color.green : Color.red;
+            ShowFairness();
         }
         else
         {
             outcomePanel.SetActive(false);
         }
+    }
+
+    public void ShowFairness()
+    {
+        if (fairnessText == null) return;
+
+        if (!LocalShuffleProof.Checked)
+        {
+            fairnessText.text = "";
+            return;
+        }
+
+        if (!LocalShuffleProof.Passed)
+        {
+            fairnessText.color = fairnessFailColor;
+            fairnessText.text = "THIS MATCH DID NOT VERIFY\n" + LocalShuffleProof.Result;
+            return;
+        }
+
+        bool signed = gameManager != null && gameManager.ReceiptFullySigned();
+        bool everyHand = LocalShuffleProof.Unverified == 0;
+
+        string deal = everyHand
+            ? "Match verified - every hand matches the committed seed"
+            : $"Match verified - {LocalShuffleProof.Unverified} hand(s) unchecked";
+
+        fairnessText.color = everyHand && signed ? fairnessPassColor : fairnessPartialColor;
+        fairnessText.text = deal + "\n" + ReceiptLine(signed);
+    }
+
+    private string ReceiptLine(bool signed)
+    {
+        if (gameManager == null || string.IsNullOrEmpty(gameManager.matchReceipt))
+            return "No match receipt was issued";
+
+        MatchReceipt receipt = MatchReceipt.Parse(gameManager.matchReceipt);
+        if (receipt == null) return "The match receipt could not be read";
+
+        string digest = receipt.DigestHex();
+        if (digest.Length > 16) digest = digest.Substring(0, 16);
+
+        return signed
+            ? $"Receipt {digest} signed by every player"
+            : $"Receipt {digest} is NOT signed by every player";
     }
 
     public void ShowWinnerTxid(string txid)

@@ -14,6 +14,20 @@ public class PracticeMode : MonoBehaviour
 
     public static bool Active { get; private set; }
 
+    private static PlayerIdentity botIdentity;
+
+    public static PlayerIdentity BotIdentity
+    {
+        get
+        {
+            if (botIdentity == null)
+                botIdentity = PlayerIdentity.LoadOrCreate(
+                    System.IO.Path.Combine(Application.persistentDataPath, "bot.key"));
+
+            return botIdentity;
+        }
+    }
+
     private bool botSpawned;
 
     private static int savedMinPlayers = -1;
@@ -37,14 +51,14 @@ public class PracticeMode : MonoBehaviour
     {
         if (NetworkServer.active || NetworkClient.active)
         {
-            Debug.LogWarning("PracticeMode: a session is already running — stop it before starting practice.");
+            Debug.LogWarning("PracticeMode: a session is already running - stop it before starting practice.");
             return;
         }
 
         XSTDragonNetworkManager manager = XSTDragonNetworkManager.singleton;
         if (manager == null)
         {
-            Debug.LogError("PracticeMode: XSTDragonNetworkManager.singleton is null — cannot start practice.");
+            Debug.LogError("PracticeMode: XSTDragonNetworkManager.singleton is null - cannot start practice.");
             return;
         }
 
@@ -151,7 +165,6 @@ public class PracticeMode : MonoBehaviour
         yield return null;
 
         bot.deck.ServerLoadDeck();
-        bot.deck.ServerDrawInitialCards();
 
         Debug.Log($"PracticeMode: bot {bot.username} dealt {bot.deck.hand.Count} cards, {bot.deck.deckList.Count} left in deck.");
 
@@ -176,7 +189,7 @@ public class PracticeMode : MonoBehaviour
     {
         if (manager.playerPrefab == null)
         {
-            Debug.LogError("PracticeMode: playerPrefab is not assigned on the network manager — cannot spawn a bot.");
+            Debug.LogError("PracticeMode: playerPrefab is not assigned on the network manager - cannot spawn a bot.");
             return null;
         }
 
@@ -184,12 +197,13 @@ public class PracticeMode : MonoBehaviour
         Player bot = botObject.GetComponent<Player>();
         if (bot == null)
         {
-            Debug.LogError("PracticeMode: playerPrefab has no Player component — cannot spawn a bot.");
+            Debug.LogError("PracticeMode: playerPrefab has no Player component - cannot spawn a bot.");
             Destroy(botObject);
             return null;
         }
 
         bot.username = botName;
+        bot.publicKey = BotIdentity.PublicKeyHex;
         botObject.name = botName;
 
         NetworkServer.Spawn(botObject);

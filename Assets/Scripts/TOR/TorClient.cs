@@ -39,7 +39,7 @@ public class TorClient : TorBaseClient
 
         if (state.client != null && state.client.Connected)
         {
-            // Socket already connected via SOCKS5 — skip DNS, just start receive thread
+            // Socket already connected via SOCKS5 - skip DNS, just start receive thread
             state.Connecting = false;
             state.receiveThread = new Thread(() =>
             {

@@ -436,6 +436,13 @@ public static class ServerBanner
         public readonly List<string> Hints = new List<string>();
     }
 
+    public static string OnionAddress()
+    {
+        string line = ProbeOnion().Line;
+
+        return IsOnionAddress(line) ? line.Trim() : "";
+    }
+
     private static OnionStatus ProbeOnion()
     {
         OnionStatus status = new OnionStatus();

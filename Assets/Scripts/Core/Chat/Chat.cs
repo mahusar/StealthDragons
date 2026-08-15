@@ -112,7 +112,7 @@ public class Chat : NetworkBehaviour
             if (!rate.throttleLogged)
             {
                 rate.throttleLogged = true;
-                Debug.LogWarning($"Chat: throttling connection {sender.connectionId} — more than {maxMessagesPerWindow} messages in {rateWindowSeconds}s.");
+                Debug.LogWarning($"Chat: throttling connection {sender.connectionId} - more than {maxMessagesPerWindow} messages in {rateWindowSeconds}s.");
             }
             return false;
         }
@@ -187,7 +187,7 @@ public class Chat : NetworkBehaviour
         XSTDragonNetworkManager manager = NetworkManager.singleton as XSTDragonNetworkManager;
         if (manager == null)
         {
-            Debug.LogError("Chat: XSTDragonNetworkManager not found — cannot leave the match.");
+            Debug.LogError("Chat: XSTDragonNetworkManager not found - cannot leave the match.");
             return;
         }
 

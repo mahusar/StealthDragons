@@ -11,6 +11,7 @@ public class Player : Entity
 {
     [Header("Player Info")]
     [SyncVar(hook = nameof(UpdatePlayerName))] public string username;
+    [SyncVar, HideInInspector] public string publicKey = "";
 
     [Header("Portrait")]
     public Sprite portrait;
@@ -20,6 +21,10 @@ public class Player : Entity
     public Sprite cardback;
     [SyncVar(hook = nameof(OnTauntCountChanged))]
     public int tauntCount = 0;
+
+    [SyncVar(hook = nameof(OnHandCountChanged))] public int handCount = 0;
+    [SyncVar] public int deckCount = 0;
+    [SyncVar] public int graveCount = 0;
 
     [Header("Stats")]
     [SyncVar] public int maxMana = 10;
@@ -43,6 +48,37 @@ public class Player : Entity
         Debug.Log($"Player {username}: tauntCount changed to {tauntCount}");
     }
 
+    private void OnHandCountChanged(int oldCount, int newCount)
+    {
+        if (!isClient || localPlayer == null || gameManager == null || gameManager.enemyHand == null)
+            return;
+
+        if (isLocalPlayer) return;
+
+        if (!localPlayer.hasEnemy)
+        {
+            StartCoroutine(WaitForEnemyThenUpdateHand());
+            return;
+        }
+
+        gameManager.enemyHand.UpdateHandCards();
+    }
+
+    private IEnumerator WaitForEnemyThenUpdateHand()
+    {
+        while (localPlayer == null)
+            yield return null;
+
+        while (!localPlayer.hasEnemy)
+        {
+            localPlayer.UpdateEnemyInfo();
+            yield return new WaitForSeconds(0.5f);
+        }
+
+        if (gameManager != null && gameManager.enemyHand != null)
+            gameManager.enemyHand.UpdateHandCards();
+    }
+
     public override void OnStartServer()
     {
         base.OnStartServer();
@@ -58,7 +94,7 @@ public class Player : Entity
     {
         localPlayer = this;
         Debug.Log($"Player: Local player set for {username}, firstPlayer: {firstPlayer}");
-        CmdLoadPlayer(PlayerName.Resolve());
+        CmdLoadPlayer(PlayerName.Resolve(), PlayerIdentity.Mine.PublicKeyHex);
 
         if (firstPlayer)
         {
@@ -105,9 +141,20 @@ public class Player : Entity
     }
 
     [Command]
-    public void CmdLoadPlayer(string user)
+    public void CmdLoadPlayer(string user, string publicKeyHex)
     {
         username = PlayerName.Sanitize(user);
+
+        if (CardShuffle.FromHex(publicKeyHex) != null
+            && publicKeyHex.Length == PlayerIdentity.PublicKeyBytes * 2)
+        {
+            publicKey = publicKeyHex;
+        }
+        else
+        {
+            publicKey = "";
+            Debug.LogWarning($"Player {username}: sent no usable identity key - this match cannot produce a signed receipt.");
+        }
     }
 
     [Command]

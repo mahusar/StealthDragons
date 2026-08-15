@@ -23,7 +23,7 @@ public class PracticeButtonUI : MonoBehaviour
         PracticeMode practice = PracticeMode.Instance;
         if (practice == null)
         {
-            Debug.LogError("PracticeButtonUI: PracticeMode.Instance is null — cannot start practice.");
+            Debug.LogError("PracticeButtonUI: PracticeMode.Instance is null - cannot start practice.");
             return;
         }
 

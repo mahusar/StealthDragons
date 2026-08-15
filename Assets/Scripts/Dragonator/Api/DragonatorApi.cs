@@ -1,6 +1,6 @@
 public static class DragonatorApi
 {
-    public const int Version = 4;
+    public const int Version = 5;
 
     public const string RequirementKey = "DragonatorApi";
 

@@ -189,7 +189,7 @@ public class Connect : MonoBehaviour
         detailStatus = $"online, {rttMs}ms away";
         RenderServerDetail();
 
-        // ── Step 2: GET_STATUS — player count ────────────────────────────────
+        // ── Step 2: GET_STATUS - player count ────────────────────────────────
         string playerCount = "?";
         done = false;
 
@@ -267,7 +267,7 @@ public class Connect : MonoBehaviour
 
             detailVersion = serverVersion.Length == 0
                 ? $"version unknown, this client is {gameVersion}"
-                : $"version {serverVersion}, this client is {gameVersion} — cannot join";
+                : $"version {serverVersion}, this client is {gameVersion} - cannot join";
             RenderServerDetail();
 
             connectButton.interactable = true;
@@ -282,7 +282,7 @@ public class Connect : MonoBehaviour
         detailVersion = $"version {serverVersion}";
         RenderServerDetail();
 
-        // ── Step 4: GET_SERVERINFO — how this server is configured ───────────
+        // ── Step 4: GET_SERVERINFO - how this server is configured ───────────
         string serverInfo = null;
         done = false;
 
@@ -401,8 +401,8 @@ public class Connect : MonoBehaviour
 
         if (wire.Trim().Length == 0)
         {
-            if (serverInfoText != null) serverInfoText.text = "Free match — no bet, no fee";
-            detailSettings = "Free match — no bet, no fee";
+            if (serverInfoText != null) serverInfoText.text = "Free match - no bet, no fee";
+            detailSettings = "Free match - no bet, no fee";
             detailAddons = "none installed";
             RenderServerDetail();
             return;
@@ -481,7 +481,7 @@ public class Connect : MonoBehaviour
         if (serverInfoText != null)
             serverInfoText.text = lines.Length > 0 ? lines.ToString() : "Server settings unavailable";
 
-        detailSettings = lines.Length > 0 ? lines.ToString() : "Free match — no bet, no fee";
+        detailSettings = lines.Length > 0 ? lines.ToString() : "Free match - no bet, no fee";
         detailAddons = addons.Length > 0 ? DescribeAddons(addons) : "none installed";
         RenderServerDetail();
     }
@@ -840,7 +840,7 @@ public class Connect : MonoBehaviour
 
             if (!row.Done) sb.Append(finished ? "no answer" : "checking...");
             else if (!row.Online) sb.Append("no answer");
-            else sb.Append("online — ").Append(DescribeOffer(row.Info));
+            else sb.Append("online - ").Append(DescribeOffer(row.Info));
 
             if (string.Equals(row.Onion, source.Trim(), StringComparison.OrdinalIgnoreCase))
                 sb.Append("   (this server)");

@@ -10,7 +10,7 @@ public static class ServerSetup
     private const string ForceFlag = "-forcesetup";
     private const string DropLogFlag = "-nosetuplog";
     private const string FeeAlias = "-hostfee";
-    private const string StartPrefix = "   starting server — ";
+    private const string StartPrefix = "   starting server - ";
 
     private static bool ran;
     private static Gate gate;
@@ -208,12 +208,12 @@ public static class ServerSetup
         catch (Aborted)
         {
             Console.WriteLine();
-            Console.WriteLine("   no input available — using the default profile.");
+            Console.WriteLine("   no input available - using the default profile.");
             ServerOptions.ApplyDefaults();
         }
         catch (Exception e)
         {
-            Console.WriteLine("   setup failed (" + e.Message + ") — using the default profile.");
+            Console.WriteLine("   setup failed (" + e.Message + ") - using the default profile.");
             ServerOptions.ApplyDefaults();
         }
 

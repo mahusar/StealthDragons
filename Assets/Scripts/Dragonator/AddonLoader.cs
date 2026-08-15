@@ -30,6 +30,8 @@ public static class AddonLoader
     private static bool loaded;
     private static IMatchEscrow escrow;
     private static string escrowOwner;
+    private static IMatchWitness witness;
+    private static string witnessOwner;
 
     private static readonly List<IServerWallet> wallets = new List<IServerWallet>();
 
@@ -53,6 +55,15 @@ public static class AddonLoader
         {
             EnsureLoaded();
             return escrow;
+        }
+    }
+
+    public static IMatchWitness Witness
+    {
+        get
+        {
+            EnsureLoaded();
+            return witness;
         }
     }
 
@@ -138,7 +149,7 @@ public static class AddonLoader
             if (needs > DragonatorApi.Version)
             {
                 failures.Add(shown + ": needs Dragonator API " + needs + ", this build has " +
-                             DragonatorApi.Version + " — update Dragonator");
+                             DragonatorApi.Version + " - update Dragonator");
                 return;
             }
 
@@ -146,10 +157,11 @@ public static class AddonLoader
 
             int added = RegisterOptions(types, shown);
             bool escrowAdded = RegisterEscrow(types, shown);
+            bool witnessAdded = RegisterWitness(types, shown);
             int walletsAdded = RegisterWallets(types, shown);
             int directoriesAdded = RegisterDirectories(types, shown);
 
-            if (added == 0 && !escrowAdded && walletsAdded == 0 && directoriesAdded == 0)
+            if (added == 0 && !escrowAdded && !witnessAdded && walletsAdded == 0 && directoriesAdded == 0)
             {
                 failures.Add(shown + ": nothing Dragonator can use inside it");
                 return;
@@ -211,7 +223,7 @@ public static class AddonLoader
             if (escrow != null)
             {
                 failures.Add(shown + ": a match escrow is already installed by " + escrowOwner +
-                             " — remove one of them");
+                             " - remove one of them");
                 return false;
             }
 
@@ -222,6 +234,39 @@ public static class AddonLoader
 
                 escrow = found;
                 escrowOwner = shown;
+                return true;
+            }
+            catch (Exception e)
+            {
+                failures.Add(shown + " (" + type.Name + "): " + Shorten(e.Message));
+            }
+        }
+
+        return false;
+    }
+
+    private static bool RegisterWitness(Type[] types, string shown)
+    {
+        foreach (Type type in types)
+        {
+            if (type == null) continue;
+            if (type.IsAbstract || type.IsInterface) continue;
+            if (!typeof(IMatchWitness).IsAssignableFrom(type)) continue;
+
+            if (witness != null)
+            {
+                failures.Add(shown + ": a match witness is already installed by " + witnessOwner +
+                             " - remove one of them");
+                return false;
+            }
+
+            try
+            {
+                IMatchWitness found = Activator.CreateInstance(type) as IMatchWitness;
+                if (found == null) continue;
+
+                witness = found;
+                witnessOwner = shown;
                 return true;
             }
             catch (Exception e)

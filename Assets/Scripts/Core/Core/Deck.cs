@@ -1,6 +1,7 @@
 ﻿using UnityEngine;
 using Mirror;
 using System.Collections;
+using System.Collections.Generic;
 
 public class Deck : NetworkBehaviour
 {
@@ -17,39 +18,7 @@ public class Deck : NetworkBehaviour
     [Header("Starting Deck")]
     public CardAndAmount[] startingDeck;
     [HideInInspector] public bool spawnInitialCards = true;
-    [SyncVar(hook = nameof(OnEnemyHandCountChanged))]
-    public int enemyHandCount = 0;
 
-    void OnEnemyHandCountChanged(int oldCount, int newCount)
-    {
-        if (!isClient || Player.localPlayer == null || Player.gameManager == null || Player.gameManager.enemyHand == null)
-            return;
-
-        if (!Player.localPlayer.hasEnemy)
-        {
-            StartCoroutine(WaitForEnemyThenUpdate());
-            return;
-        }
-
-        Player.gameManager.enemyHand.UpdateHandCards();
-    }
-
-    private IEnumerator WaitForEnemyThenUpdate()
-    {
-        while (Player.localPlayer == null)
-            yield return null;
-
-        while (!Player.localPlayer.hasEnemy)
-        {
-            Player.localPlayer.UpdateEnemyInfo();
-            yield return new WaitForSeconds(0.5f);
-        }
-
-        Debug.Log("WaitForEnemyThenUpdate: Enemy found, updating hand.");
-
-        if (Player.gameManager?.enemyHand != null)
-            Player.gameManager.enemyHand.UpdateHandCards();
-    }
     private bool handCallbackRegistered;
 
     private void RegisterHandCallback()
@@ -63,6 +32,30 @@ public class Deck : NetworkBehaviour
     {
         base.OnStartServer();
         RegisterHandCallback();
+
+        deckList.Callback += OnDeckListChanged;
+        graveyard.Callback += OnGraveyardChanged;
+        ServerPublishCounts();
+    }
+
+    private void OnDeckListChanged(SyncList<CardInfo>.Operation op, int itemIndex, CardInfo oldItem, CardInfo newItem)
+    {
+        ServerPublishCounts();
+    }
+
+    private void OnGraveyardChanged(SyncList<CardInfo>.Operation op, int itemIndex, CardInfo oldItem, CardInfo newItem)
+    {
+        ServerPublishCounts();
+    }
+
+    [Server]
+    private void ServerPublishCounts()
+    {
+        if (player == null) return;
+
+        player.handCount = hand.Count;
+        player.deckCount = deckList.Count;
+        player.graveCount = graveyard.Count;
     }
     public override void OnStartClient()
     {
@@ -97,9 +90,59 @@ public class Deck : NetworkBehaviour
         Debug.LogWarning($"Deck: playerHand never became available for {player?.username}; hand not rendered.");
     }
 
+    public List<CardInfo> StartingComposition()
+    {
+        List<CardInfo> composition = new List<CardInfo>();
+
+        for (int i = 0; i < startingDeck.Length; ++i)
+        {
+            CardAndAmount card = startingDeck[i];
+            for (int v = 0; v < card.amount; ++v) composition.Add(new CardInfo(card.card));
+        }
+
+        return composition;
+    }
+
+    private bool recordingDealtOrder;
+
+    private void ClientRecordDealtOrder()
+    {
+        if (!isLocalPlayer) return;
+        if (recordingDealtOrder) return;
+
+        recordingDealtOrder = true;
+        StartCoroutine(RecordDealtOrderWhenStable());
+    }
+
+    private IEnumerator RecordDealtOrderWhenStable()
+    {
+        List<CardInfo> composition = StartingComposition();
+        float deadline = Time.realtimeSinceStartup + 20f;
+
+        while (Time.realtimeSinceStartup < deadline)
+        {
+            if (hand.Count > 0 && hand.Count + deckList.Count == composition.Count)
+            {
+                List<CardInfo> order = new List<CardInfo>();
+                for (int i = 0; i < hand.Count; i++) order.Add(hand[i]);
+                for (int i = 0; i < deckList.Count; i++) order.Add(deckList[i]);
+
+                LocalShuffleProof.RememberDeal(order, netIdentity.netId, composition);
+                CmdAttestDealtOrder(CardShuffle.Fingerprint(order));
+                yield break;
+            }
+
+            yield return null;
+        }
+
+        Debug.LogWarning("Deck: the dealt order never settled; this deal cannot be re-checked locally.");
+    }
+
     void OnHandChanged(SyncList<CardInfo>.Operation op, int itemIndex, CardInfo oldItem, CardInfo newItem)
     {
-        if (isServer) enemyHandCount = hand.Count;
+        if (isServer) ServerPublishCounts();
+
+        ClientRecordDealtOrder();
 
         if (isLocalPlayer && Player.gameManager?.playerHand != null)
         {
@@ -112,10 +155,89 @@ public class Deck : NetworkBehaviour
     public override void OnStartLocalPlayer()
     {
         CmdLoadDeck();
+
+        if (!seedSubmitted)
+        {
+            seedSubmitted = true;
+            StartCoroutine(SubmitShuffleSeedWhenCommitted());
+        }
     }
 
     private bool deckLoaded = false;
     private bool initialCardsDrawn = false;
+    private bool dealt = false;
+    private bool seedSubmitted = false;
+
+    [Command]
+    public void CmdSubmitSeedCommitment(byte[] hash)
+    {
+        MatchFairness.AddSeedCommitment(netIdentity.netId, hash);
+    }
+
+    [Command]
+    public void CmdSubmitShuffleSeed(byte[] seed)
+    {
+        MatchFairness.AddClientSeed(netIdentity.netId, seed);
+    }
+
+    [Command]
+    public void CmdAttestDealtOrder(string fingerprint)
+    {
+        if (!MatchFairness.AddDealtOrder(netIdentity.netId, fingerprint)) return;
+
+        GameManager gm = FindFirstObjectByType<GameManager>();
+        if (gm != null) gm.ServerPublishDealtOrders();
+    }
+
+    private IEnumerator SubmitShuffleSeedWhenCommitted()
+    {
+        float deadline = Time.realtimeSinceStartup + 15f;
+
+        while (Time.realtimeSinceStartup < deadline)
+        {
+            if (Player.gameManager == null)
+                Player.gameManager = FindObjectOfType<GameManager>();
+
+            if (Player.gameManager != null && !string.IsNullOrEmpty(Player.gameManager.shuffleCommitment))
+                break;
+
+            yield return null;
+        }
+
+        if (Player.gameManager == null || string.IsNullOrEmpty(Player.gameManager.shuffleCommitment))
+        {
+            Debug.LogWarning("Deck: no shuffle commitment appeared; this deal cannot be verified.");
+            yield break;
+        }
+
+        byte[] seed = CardShuffle.NewSeed(CardShuffle.ClientSeedBytes);
+        LocalShuffleProof.Remember(Player.gameManager.shuffleCommitment, seed);
+
+        CmdSubmitSeedCommitment(CardShuffle.Commitment(seed));
+        Debug.Log("Deck: committed to my shuffle seed without revealing it.");
+
+        deadline = Time.realtimeSinceStartup + 30f;
+
+        while (Time.realtimeSinceStartup < deadline)
+        {
+            if (Player.gameManager == null)
+            {
+                Debug.LogWarning("Deck: the GameManager vanished before my seed could be revealed.");
+                yield break;
+            }
+
+            if (Player.gameManager.shuffleSealed)
+            {
+                CmdSubmitShuffleSeed(seed);
+                Debug.Log("Deck: revealed my shuffle seed once every player was locked in.");
+                yield break;
+            }
+
+            yield return null;
+        }
+
+        Debug.LogWarning("Deck: the seed commitments were never sealed; my seed stays unrevealed.");
+    }
 
     [Command]
     public void CmdLoadDeck()
@@ -153,8 +275,29 @@ public class Deck : NetworkBehaviour
                 deckList.Add(new CardInfo(card.card));
             }
         }
+    }
 
-        deckList.Shuffle();
+    [Server]
+    public void ServerShuffleAndDeal()
+    {
+        if (!deckLoaded) ServerLoadDeck();
+
+        if (dealt)
+        {
+            Debug.LogWarning($"ServerShuffleAndDeal: {player?.username} was already dealt - ignoring.");
+            return;
+        }
+        dealt = true;
+
+        List<CardInfo> ordered = deckList.ToList();
+        CardShuffle.Shuffle(ordered, MatchFairness.SeedFor(netIdentity.netId));
+
+        deckList.Clear();
+        for (int i = 0; i < ordered.Count; i++) deckList.Add(ordered[i]);
+
+        Debug.Log($"ServerShuffleAndDeal: {player?.username} deck order fingerprint {CardShuffle.Fingerprint(ordered)}");
+
+        ServerDrawInitialCards();
     }
     #endregion
 
@@ -162,7 +305,7 @@ public class Deck : NetworkBehaviour
     [Command]
     public void CmdDrawInitialCards()
     {
-        ServerDrawInitialCards();
+        Debug.Log($"CmdDrawInitialCards ignored: the server deals every opening hand once the shuffle is settled ({player?.username}).");
     }
 
     [Server]
@@ -279,7 +422,7 @@ public class Deck : NetworkBehaviour
     {
         if (boardCard == null)
         {
-            Debug.LogWarning("Deck: RpcPlayCard ignored — the board card is not spawned on this client.");
+            Debug.LogWarning("Deck: RpcPlayCard ignored - the board card is not spawned on this client.");
             return;
         }
 
@@ -289,14 +432,14 @@ public class Deck : NetworkBehaviour
         GameManager gm = Player.gameManager;
         if (gm == null)
         {
-            Debug.LogWarning("Deck: RpcPlayCard ignored — no GameManager on this client yet.");
+            Debug.LogWarning("Deck: RpcPlayCard ignored - no GameManager on this client yet.");
             return;
         }
 
         FieldCard fieldCard = boardCard.GetComponent<FieldCard>();
         if (fieldCard == null)
         {
-            Debug.LogWarning($"Deck: RpcPlayCard ignored — {boardCard.name} has no FieldCard component.");
+            Debug.LogWarning($"Deck: RpcPlayCard ignored - {boardCard.name} has no FieldCard component.");
             return;
         }
 
@@ -304,7 +447,7 @@ public class Deck : NetworkBehaviour
         PlayerField field = mine ? gm.playerField : gm.enemyField;
         if (field == null || field.content == null)
         {
-            Debug.LogWarning($"Deck: RpcPlayCard ignored — the {(mine ? "player" : "enemy")} field is not assigned on this client.");
+            Debug.LogWarning($"Deck: RpcPlayCard ignored - the {(mine ? "player" : "enemy")} field is not assigned on this client.");
             return;
         }
 
