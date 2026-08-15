@@ -92,6 +92,13 @@ StealthDragons and Dragonator are experimental software provided for testing and
 Use this software at your own risk. No guarantees are made regarding stability, security, or reliability. Funds may be lost due to bugs, crashes, or unexpected behavior.
 
 ###### No Gambling or Betting Service Disclaimer
-This software is a peer-to-peer experimental game integration and does not operate, provide, or promote any gambling or betting service.
-The developer does not host, manage, or control user funds beyond the automated blockchain transaction functionality built into the software.
+A stock StealthDragons build cannot take a stake or send a payout, and contains no wallet operations of any kind. Bets require a separate server add-on that an operator installs deliberately, and that add-on is not part of this software.
+The developer operates no server, does not host or manage user funds, and does not provide or promote any gambling or betting service.
 Users are fully responsible for how they use this software and must comply with their local laws and regulations.
+
+###### No Public Server
+The author writes this software and operates no public server. Any server claiming to be operated by the author is not.
+
+###### Source and Licensing
+Copyright (C) 2026 Martin Husar. No license is granted. The source is published for review and verification only, not for reuse, modification or redistribution.
+Unity, Mirror, TextMesh Pro, DOTween and other third-party components remain under their own licenses.
