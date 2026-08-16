@@ -127,6 +127,28 @@ public class Connect : MonoBehaviour
         StartCoroutine(PingAndStatus(address));
     }
 
+    private const float TorStartTimeout = 120f;
+
+    private IEnumerator WaitForTor()
+    {
+        if (TorLauncher.Ready) yield break;
+
+        TorLauncher.Ensure();
+
+        float deadline = Time.realtimeSinceStartup + TorStartTimeout;
+
+        while (Time.realtimeSinceStartup < deadline)
+        {
+            TorLauncher.State status = TorLauncher.Status;
+            if (status == TorLauncher.State.Ready || status == TorLauncher.State.Failed) yield break;
+
+            statusText.text = TorLauncher.Describe();
+            yield return new WaitForSeconds(0.25f);
+        }
+
+        Debug.LogWarning("[Tor] gave up waiting after " + TorStartTimeout + "s.");
+    }
+
     private IEnumerator PingAndStatus(string address)
     {
         statusText.text = "Pinging server...";
@@ -146,6 +168,17 @@ public class Connect : MonoBehaviour
         detailSettings = "";
         detailAddons = "";
         RenderServerDetail();
+
+        yield return WaitForTor();
+
+        if (!TorLauncher.Ready)
+        {
+            statusText.text = TorLauncher.Describe();
+            detailStatus = "Tor is not ready";
+            RenderServerDetail();
+            connectButton.interactable = true;
+            yield break;
+        }
 
         // ── Step 1: ping ──────────────────────────────────────────────────────
         bool serverOnline = false;

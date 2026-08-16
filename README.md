@@ -3,7 +3,7 @@ The cards are NFT node artworks, drawn randomly, and every player has the same n
 
 ### TOR network 
 - All game traffic is routed through the **Tor network** via a hidden service (.onion address) - no central server, fully encrypted PvP
-- Requires Tor running locally (port 9050) to connect to the server
+- Tor ships with the client and starts by itself, so there is nothing to install or configure
 
 ### Stealth (XST)
 - Stealth is a fast, feelesss, private, and scalable blockchain built on the Junaeth cryptocurrency protocol
@@ -25,13 +25,17 @@ The cards are NFT node artworks, drawn randomly, and every player has the same n
  
  ### Setup Client
 ##### Windows
-- Install Tor standalone via [Expert Bundle](https://www.torproject.org/download/tor/)
-- Add torrc config file: SocksPort 9050 | ControlPort 9051 | DataDirectory tor_data | HiddenServiceDir C:\Tor\hidden\ | HiddenServiceVersion 3 | HiddenServicePort 7777 127.0.0.1:7777
-- cd C:\Tor\Tor
-- .\tor.exe -f torrc
 - Launch StealthDragons.exe
 - Set Player name (default is StealthDragon)
 - Enter the Dragonator Server .onion address, connect to begin
+
+**Tor is included and starts on its own.** The first connection takes about ten
+seconds while it builds a circuit, and the progress is shown on the connect
+screen. Nothing to install and no torrc to write.
+
+- Practice against the AI needs no Tor at all, so you can play straight away
+- If you already run Tor on port 9050, the game uses that instead of starting its own
+- The bundled Tor is The Tor Project's, unmodified, run as a separate process - see `StreamingAssets/Tor/NOTICE.txt` in the build
 
  ### Setup Dragonator
 - Requires a fully synced Stealth daemon v3.3.4.0

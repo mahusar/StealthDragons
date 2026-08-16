@@ -68,6 +68,7 @@ public class XSTDragonNetworkManager : NetworkRoomManager
     void OnApplicationQuit()
     {
         if (Utils.IsHeadless()) MatchWitness.Shutdown();
+        else TorLauncher.Stop();
     }
 
     public override void Start()
