@@ -58,6 +58,8 @@ public class GameManager : NetworkBehaviour
     [SyncVar(hook = nameof(OnMatchReceipt)), HideInInspector] public string matchReceipt = "";
 
     private readonly Dictionary<string, string> serverSignatures = new Dictionary<string, string>();
+
+    private readonly Dictionary<int, string> seatKeyByConnection = new Dictionary<int, string>();
     private long matchStartedUnix;
     private bool matchEnded;
     private bool witnessed;
@@ -236,14 +238,22 @@ public class GameManager : NetworkBehaviour
             stake = practiceMode ? "free" : ServerStakeDescription()
         };
 
+        seatKeyByConnection.Clear();
+
         foreach (Player entry in FindObjectsByType<Player>(FindObjectsSortMode.None))
         {
             if (entry == null || string.IsNullOrEmpty(entry.publicKey)) continue;
 
+            NetworkConnectionToClient seatConnection =
+                entry.netIdentity != null ? entry.netIdentity.connectionToClient : null;
+
+            if (seatConnection != null)
+                seatKeyByConnection[seatConnection.connectionId] = entry.publicKey;
+
             receipt.seats.Add(new MatchReceipt.Seat
             {
                 netId = entry.netId,
-                bot = entry.netIdentity == null || entry.netIdentity.connectionToClient == null,
+                bot = seatConnection == null,
                 publicKeyHex = entry.publicKey,
                 username = entry.username
             });
@@ -298,24 +308,37 @@ public class GameManager : NetworkBehaviour
     {
         if (string.IsNullOrEmpty(matchReceipt)) return;
 
-        Player player = sender?.identity != null ? sender.identity.GetComponent<Player>() : null;
-        if (player == null || string.IsNullOrEmpty(player.publicKey))
+        string publicKey = null;
+        if (sender != null) seatKeyByConnection.TryGetValue(sender.connectionId, out publicKey);
+
+        if (string.IsNullOrEmpty(publicKey))
         {
-            Debug.LogWarning("GameManager: a receipt signature arrived from a connection with no identity - ignored.");
+            Player live = sender?.identity != null ? sender.identity.GetComponent<Player>() : null;
+            if (live != null) publicKey = live.publicKey;
+        }
+
+        if (string.IsNullOrEmpty(publicKey))
+        {
+            Debug.LogWarning("GameManager: a receipt signature arrived from a connection that held no seat - ignored.");
             return;
         }
 
         MatchReceipt receipt = MatchReceipt.Parse(matchReceipt);
         if (receipt == null) return;
 
-        if (!PlayerIdentity.Verify(player.publicKey, receipt.Digest(), signatureHex))
+        if (!PlayerIdentity.Verify(publicKey, receipt.Digest(), signatureHex))
         {
-            Debug.LogWarning($"GameManager: {player.username} sent a receipt signature that does not verify - ignored.");
+            Debug.LogWarning($"GameManager: {Short(publicKey)} sent a receipt signature that does not verify - ignored.");
             return;
         }
 
-        ServerRecordSignature(player.publicKey, signatureHex);
-        Debug.Log($"GameManager: {player.username} signed the match receipt.");
+        ServerRecordSignature(publicKey, signatureHex);
+        Debug.Log($"GameManager: {Short(publicKey)} signed the match receipt.");
+    }
+
+    private static string Short(string hex)
+    {
+        return string.IsNullOrEmpty(hex) || hex.Length <= 16 ? hex : hex.Substring(0, 16);
     }
 
     [Server]

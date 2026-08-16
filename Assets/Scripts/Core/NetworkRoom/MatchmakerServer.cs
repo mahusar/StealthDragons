@@ -45,8 +45,6 @@ public class MatchmakerServer : MonoBehaviour
             isRunning = true;
             StartCoroutine(AcceptClients());
             StartCoroutine(CleanupInactiveRooms());
-            StartCoroutine(TickWitness());
-            MatchWitness.EnsureAttached();
             Debug.Log($"[Matchmaker] TCP server started on port {matchmakerPort}");
         }
         catch (Exception e)
@@ -59,17 +57,7 @@ public class MatchmakerServer : MonoBehaviour
     {
         isRunning = false;
         tcpServer?.Stop();
-        MatchWitness.Shutdown();
         Debug.Log("[Matchmaker] Stopped");
-    }
-
-    IEnumerator TickWitness()
-    {
-        while (isRunning)
-        {
-            yield return new WaitForSeconds(15f);
-            MatchWitness.Tick();
-        }
     }
 
     IEnumerator AcceptClients()

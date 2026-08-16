@@ -54,11 +54,30 @@ public class XSTDragonNetworkManager : NetworkRoomManager
         }
     }
 
+    private const float WitnessTickSeconds = 15f;
+
+    private IEnumerator TickWitness()
+    {
+        while (true)
+        {
+            yield return new WaitForSeconds(WitnessTickSeconds);
+            MatchWitness.Tick();
+        }
+    }
+
+    void OnApplicationQuit()
+    {
+        if (Utils.IsHeadless()) MatchWitness.Shutdown();
+    }
+
     public override void Start()
     {
         base.Start();
 
         if (!Utils.IsHeadless() || singleton != this) return;
+
+        MatchWitness.EnsureAttached();
+        StartCoroutine(TickWitness());
 
         if (!ServerSetup.Ready)
         {
