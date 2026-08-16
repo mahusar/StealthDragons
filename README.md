@@ -15,6 +15,13 @@ The cards are NFT node artworks, drawn randomly, and every player has the same n
 - All connections (matchmaking, version check, game traffic) go through Tor
 - Players connect via .onion address directly in the game client
 - Server player count is tracked live and shown before joining
+
+### Provably fair matches
+- The server commits to the shuffle before a single card is dealt, and every player mixes in their own seed
+- The seed is revealed at the end, so each client recomputes the whole deal and checks its own hand and the opponent's
+- Every completed match produces a receipt that both players sign, with keys the server never holds, so a result cannot be invented or altered afterwards
+- A client that cannot verify the deal refuses to sign, so a signed receipt means both sides checked it and agreed
+- Publishing those receipts on the Stealth chain, so a match can also be proved to have happened by a certain time, is an optional server add-on
  
  ### Setup Client
 ##### Windows
