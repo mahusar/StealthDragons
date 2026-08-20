@@ -14,17 +14,19 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   id: 10
   image: {fileID: 21300000, guid: 81475448e5414ab478f6351bfbdb1f7e, type: 3}
-  cost: 4
+  cost: 5
   category: 
   intiatives: []
   hasInitiative: 0
   description: 
-  strength: 4
-  health: 8
+  strength: 5
+  health: 9
   acceptableTargets: 0301
   creatureType: 
   hasCharge: 0
   hasTaunt: 1
+  hasShield: 0
+  hasLifesteal: 0
   deathcrys: []
   hasDeathCry: 0
   cardPrefab: {fileID: 3966246863333951121, guid: 66532acc9bfbbe043b5ef65a717193da, type: 3}

@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 using Mirror;
 using System.Collections;
 
@@ -40,7 +40,7 @@ public class Combat : NetworkBehaviour
         if (shouldDestroy)
         {
             Debug.Log($"ServerChangeHealth: {entity.gameObject.name} health <= 0. Initiating destruction.");
-            if (entity is FieldCard fieldCard)
+            if (entity is BoardCard fieldCard)
             {
                 if (fieldCard.owner != null && fieldCard.owner.deck != null && !string.IsNullOrEmpty(fieldCard.card.name))
                 {
@@ -54,10 +54,12 @@ public class Combat : NetworkBehaviour
                     fieldCard.owner.deck.playerField.Remove(fieldCard.card);
                     Debug.Log($"Card {fieldCard.card.name} destroyed. {fieldCard.owner.username}'s graveyard count: {fieldCard.owner.deck.graveyard.Count}");
                     StartCoroutine(DestroyCardAfterAnimation(fieldCard.gameObject));
+                    BoardCard struck = Deathrattle.Resolve(fieldCard);
+                    if (struck != null) RpcDeathrattle(struck.netId);
                 }
                 else
                 {
-                    Debug.LogError($"ServerChangeHealth: FieldCard {fieldCard.gameObject.name} has invalid owner: {fieldCard.owner}, deck: {fieldCard.owner?.deck}, or card name: {fieldCard.card.name}. Destroying directly.");
+                    Debug.LogError($"ServerChangeHealth: BoardCard {fieldCard.gameObject.name} has invalid owner: {fieldCard.owner}, deck: {fieldCard.owner?.deck}, or card name: {fieldCard.card.name}. Destroying directly.");
                     NetworkServer.Destroy(fieldCard.gameObject);
                 }
             }
@@ -214,8 +216,73 @@ public class Combat : NetworkBehaviour
         if (attackerCombat.entity == null) attackerCombat.entity = attackerEntity;
         if (targetCombat.entity == null) targetCombat.entity = targetEntity;
 
-        targetCombat.ServerChangeHealth(-attackerStrength);
-        attackerCombat.ServerChangeHealth(-targetStrength);
+        int dealtToTarget = ServerApplyDamage(targetCombat, targetEntity, attackerStrength);
+        int dealtToAttacker = ServerApplyDamage(attackerCombat, attackerEntity, targetStrength);
+
+        ServerDrainLife(attackerEntity, dealtToTarget);
+        ServerDrainLife(targetEntity, dealtToAttacker);
+    }
+
+    [Server]
+    public static int ServerDealDamage(Entity target, int amount)
+    {
+        if (target == null || amount <= 0) return 0;
+
+        Combat combat = target.GetComponent<Combat>();
+        if (combat == null)
+        {
+            Debug.LogError($"ServerDealDamage: {target.name} has no Combat component, so {amount} damage was dropped.");
+            return 0;
+        }
+
+        if (combat.entity == null) combat.entity = target;
+
+        return ServerApplyDamage(combat, target, amount);
+    }
+
+    [Server]
+    private static int ServerApplyDamage(Combat combat, Entity entity, int amount)
+    {
+        if (combat == null || entity == null || amount <= 0) return 0;
+
+        if (entity.shielded)
+        {
+            entity.shielded = false;
+            Debug.Log($"ServerResolveAttack: {entity.name} absorbed {amount} with its shield.");
+            return 0;
+        }
+
+        combat.ServerChangeHealth(-amount);
+        return amount;
+    }
+
+    [Server]
+    private static void ServerDrainLife(Entity dealer, int damage)
+    {
+        if (dealer == null || damage <= 0) return;
+        if (!HasLifesteal(dealer)) return;
+
+        Player owner = dealer as Player;
+        if (owner == null) owner = dealer.owner;
+        if (owner == null) return;
+
+        GameManager manager = FindFirstObjectByType<GameManager>();
+        int ceiling = manager != null ? manager.maxHealth : owner.health + damage;
+
+        int healed = Mathf.Min(ceiling, owner.health + damage) - owner.health;
+        if (healed <= 0) return;
+
+        owner.health += healed;
+        Debug.Log($"ServerResolveAttack: {dealer.name} drained {healed} back to {owner.username}.");
+    }
+
+    private static bool HasLifesteal(Entity entity)
+    {
+        BoardCard board = entity as BoardCard;
+        if (board == null || !board.card.Known) return false;
+
+        CreatureCard creature = board.card.data as CreatureCard;
+        return creature != null && creature.hasLifesteal;
     }
 
     private static GameObject FindSpawnedObject(uint netId)
@@ -253,6 +320,18 @@ public class Combat : NetworkBehaviour
         {
             Debug.LogWarning($"RpcAnimateAttack: CardAnimator not found on {attackerObj.name}");
         }
+    }
+
+    [ClientRpc]
+    void RpcDeathrattle(uint targetNetId)
+    {
+        GameObject targetObject = FindSpawnedObject(targetNetId);
+        if (targetObject == null) return;
+
+        BoardCard struck = targetObject.GetComponent<BoardCard>();
+        if (struck == null) return;
+
+        struck.ShowDeathrattle();
     }
 
     private IEnumerator DestroyCardAfterAnimation(GameObject cardObject)

@@ -19,12 +19,14 @@ MonoBehaviour:
   intiatives: []
   hasInitiative: 0
   description: 
-  strength: 15
-  health: 10
+  strength: 14
+  health: 12
   acceptableTargets: 0301
   creatureType: 
   hasCharge: 0
-  hasTaunt: 1
+  hasTaunt: 0
+  hasShield: 1
+  hasLifesteal: 0
   deathcrys: []
   hasDeathCry: 0
   cardPrefab: {fileID: 3966246863333951121, guid: 66532acc9bfbbe043b5ef65a717193da, type: 3}

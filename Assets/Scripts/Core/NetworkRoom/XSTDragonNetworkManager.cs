@@ -67,7 +67,11 @@ public class XSTDragonNetworkManager : NetworkRoomManager
 
     void OnApplicationQuit()
     {
-        if (Utils.IsHeadless()) MatchWitness.Shutdown();
+        if (Utils.IsHeadless())
+        {
+            MatchWitness.Shutdown();
+            MatchBots.Shutdown();
+        }
         else TorLauncher.Stop();
     }
 
@@ -78,6 +82,7 @@ public class XSTDragonNetworkManager : NetworkRoomManager
         if (!Utils.IsHeadless() || singleton != this) return;
 
         MatchWitness.EnsureAttached();
+        MatchBots.EnsureAttached();
         StartCoroutine(TickWitness());
 
         if (!ServerSetup.Ready)
@@ -94,6 +99,13 @@ public class XSTDragonNetworkManager : NetworkRoomManager
         }
 
         StartServer();
+
+        if (!BotArena.Wanted()) return;
+
+        BotArena arena = GetComponent<BotArena>();
+        if (arena == null) arena = gameObject.AddComponent<BotArena>();
+
+        arena.ServerBegin();
     }
 
     public void UpdateTransportPort()
@@ -168,11 +180,22 @@ public class XSTDragonNetworkManager : NetworkRoomManager
             {
                 Debug.LogWarning("PracticeMode is active - skipping wallet initialisation entirely.");
 
-                PracticeMode practice = PracticeMode.Instance;
-                if (practice != null)
-                    practice.OnGameplaySceneLoaded();
+                if (ReplayMatch.Active)
+                {
+                    ReplayMatch watcher = ReplayMatch.Instance;
+                    if (watcher != null)
+                        watcher.OnGameplaySceneLoaded();
+                    else
+                        Debug.LogError("ReplayMatch.Active is set but Instance is missing - the replay will not play.");
+                }
                 else
-                    Debug.LogError("PracticeMode.Active is set but Instance is missing - the bot will not spawn.");
+                {
+                    PracticeMode practice = PracticeMode.Instance;
+                    if (practice != null)
+                        practice.OnGameplaySceneLoaded();
+                    else
+                        Debug.LogError("PracticeMode.Active is set but Instance is missing - the bot will not spawn.");
+                }
             }
             else
             {
@@ -207,6 +230,13 @@ public class XSTDragonNetworkManager : NetworkRoomManager
 
     public override void OnServerAddPlayer(NetworkConnectionToClient conn)
     {
+        if (BotArena.Active)
+        {
+            Debug.Log("[Status] Refused a player: this server plays bot against bot.");
+            conn.Disconnect();
+            return;
+        }
+
         if (roomSlots.Count >= 2) { conn.Disconnect(); return; }
         base.OnServerAddPlayer(conn);
         connectedPlayers++;

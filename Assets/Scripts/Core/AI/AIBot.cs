@@ -116,7 +116,7 @@ public class AIBot : MonoBehaviour
         Player opponent = FindOpponent();
         if (opponent == null) return false;
 
-        FieldCard attacker = FindReadyAttacker();
+        BoardCard attacker = FindReadyAttacker();
         if (attacker == null) return false;
 
         Entity target = ChooseTarget(attacker, opponent);
@@ -134,9 +134,9 @@ public class AIBot : MonoBehaviour
         return null;
     }
 
-    private FieldCard FindReadyAttacker()
+    private BoardCard FindReadyAttacker()
     {
-        foreach (FieldCard card in Object.FindObjectsByType<FieldCard>(FindObjectsSortMode.None))
+        foreach (BoardCard card in Object.FindObjectsByType<BoardCard>(FindObjectsSortMode.None))
         {
             if (card.owner != self) continue;
             if (card.health <= 0) continue;
@@ -148,10 +148,10 @@ public class AIBot : MonoBehaviour
         return null;
     }
 
-    private Entity ChooseTarget(FieldCard attacker, Player opponent)
+    private Entity ChooseTarget(BoardCard attacker, Player opponent)
     {
-        List<FieldCard> enemyCards = new List<FieldCard>();
-        foreach (FieldCard card in Object.FindObjectsByType<FieldCard>(FindObjectsSortMode.None))
+        List<BoardCard> enemyCards = new List<BoardCard>();
+        foreach (BoardCard card in Object.FindObjectsByType<BoardCard>(FindObjectsSortMode.None))
         {
             if (card.owner == self) continue;
             if (card.health <= 0) continue;
@@ -161,8 +161,8 @@ public class AIBot : MonoBehaviour
 
         if (opponent.tauntCount > 0)
         {
-            FieldCard bestTaunt = null;
-            foreach (FieldCard card in enemyCards)
+            BoardCard bestTaunt = null;
+            foreach (BoardCard card in enemyCards)
             {
                 if (!card.taunt) continue;
                 if (bestTaunt == null || card.health < bestTaunt.health) bestTaunt = card;
@@ -174,8 +174,8 @@ public class AIBot : MonoBehaviour
             return null;
         }
 
-        FieldCard freeKill = null;
-        foreach (FieldCard card in enemyCards)
+        BoardCard freeKill = null;
+        foreach (BoardCard card in enemyCards)
         {
             if (card.health > attacker.strength) continue;
             if (card.strength >= attacker.health) continue;

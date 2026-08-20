@@ -7,12 +7,19 @@ public class PracticeMode : MonoBehaviour
     public static PracticeMode Instance;
 
     [Header("Bot")]
-    [SerializeField] private string botName = "Dragonator AI";
+    [SerializeField] private string botName = "StealthDragon AI";
 
     [Tooltip("Seconds to wait for the human's game player to spawn before giving up.")]
     [SerializeField] private float playerSpawnTimeout = 15f;
 
     public static bool Active { get; private set; }
+
+    public static bool ForceRemoteBrain;
+
+    [Tooltip("How well the built-in practice bot plays.")]
+    [SerializeField] private BotSkill skill = BotSkill.Normal;
+
+    private const string RemoteBrainFlag = "-remotebot";
 
     private static PlayerIdentity botIdentity;
 
@@ -112,6 +119,32 @@ public class PracticeMode : MonoBehaviour
         return count;
     }
 
+    private static bool restartWanted;
+    private static float restartAsked;
+
+    public void Restart()
+    {
+        restartWanted = true;
+        restartAsked = Time.realtimeSinceStartup;
+        Time.timeScale = 1f;
+
+        XSTDragonNetworkManager manager = XSTDragonNetworkManager.singleton;
+
+        if (manager != null && (NetworkServer.active || NetworkClient.active)) manager.StopHost();
+    }
+
+    void Update()
+    {
+        if (!restartWanted) return;
+        if (NetworkServer.active || NetworkClient.active) return;
+        if (Time.realtimeSinceStartup - restartAsked < 1f) return;
+
+        restartWanted = false;
+
+        Clear();
+        StartPractice();
+    }
+
     public static void Clear()
     {
         Active = false;
@@ -131,6 +164,7 @@ public class PracticeMode : MonoBehaviour
     public void OnGameplaySceneLoaded()
     {
         if (!Active) return;
+        if (ReplayMatch.Active) return;
         if (botSpawned) return;
         botSpawned = true;
         StartCoroutine(SpawnBotThenStart());
@@ -208,11 +242,52 @@ public class PracticeMode : MonoBehaviour
 
         NetworkServer.Spawn(botObject);
 
-        AIBot brain = botObject.GetComponent<AIBot>();
-        if (brain == null) brain = botObject.AddComponent<AIBot>();
-        brain.ServerInitialize(bot);
+        if (RemoteBrainWanted()) DriveRemotely(botObject, bot);
+        else DriveLocally(botObject, bot);
 
         Debug.Log($"PracticeMode: spawned bot {bot.username} with netId {bot.netId}.");
         return bot;
+    }
+
+    private void DriveLocally(GameObject botObject, Player bot)
+    {
+        AIBot brain = botObject.GetComponent<AIBot>();
+        if (brain == null) brain = botObject.AddComponent<AIBot>();
+        brain.ServerInitialize(bot);
+    }
+
+    private void DriveRemotely(GameObject botObject, Player bot)
+    {
+        AIBot local = botObject.GetComponent<AIBot>();
+        if (local != null) Destroy(local);
+
+        RemoteBrain brain = botObject.GetComponent<RemoteBrain>();
+        if (brain == null) brain = botObject.AddComponent<RemoteBrain>();
+
+        IBotChannel channel = MatchBots.Open(0);
+        bool entrant = channel != null;
+
+        if (channel == null)
+        {
+            channel = new BuiltInBotChannel(skill, BotIdentity);
+            Debug.Log($"PracticeMode: no bot dialled in - using the built-in " +
+                      $"{BuiltInBotChannel.NameOf(skill)} policy.");
+        }
+
+        if (!string.IsNullOrEmpty(channel.Key)) bot.publicKey = channel.Key;
+
+        if (entrant && !string.IsNullOrEmpty(channel.Name)) bot.username = channel.Name;
+
+        brain.ServerInitialize(bot, channel);
+    }
+
+    private static bool RemoteBrainWanted()
+    {
+        if (ForceRemoteBrain) return true;
+
+        foreach (string arg in System.Environment.GetCommandLineArgs())
+            if (string.Equals(arg, RemoteBrainFlag, System.StringComparison.OrdinalIgnoreCase)) return true;
+
+        return false;
     }
 }

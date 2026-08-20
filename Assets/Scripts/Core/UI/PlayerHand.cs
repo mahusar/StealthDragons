@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 using Mirror;
 using System.Collections;
 
@@ -9,7 +9,7 @@ public class PlayerHand : MonoBehaviour
     public GameObject panel;
     public HandCard cardPrefab;
     public Transform handContent;
-    public PlayerType playerType;
+    public SeatKind playerType;
     private Player player;
     private PlayerInfo enemyInfo;
     private int cardCount = 0;
@@ -25,13 +25,13 @@ public class PlayerHand : MonoBehaviour
 
         player = Player.localPlayer;
 
-        if (playerType == PlayerType.PLAYER && player.deck.spawnInitialCards)
+        if (playerType == SeatKind.PLAYER && player.deck.spawnInitialCards)
         {
             DrawCards();
             player.deck.spawnInitialCards = false;
         }
 
-        if (playerType == PlayerType.ENEMY)
+        if (playerType == SeatKind.ENEMY)
         {
             while (!player.hasEnemy)
             {
@@ -40,7 +40,10 @@ public class PlayerHand : MonoBehaviour
             }
 
             enemyInfo = player.enemyInfo;
-            UIUtils.BalancePrefabs(cardPrefab.gameObject, enemyInfo.handCount, handContent);
+
+            if (!Wired()) yield break;
+
+            SlotFiller.Fill(cardPrefab.gameObject, enemyInfo.handCount, handContent);
             for (int i = 0; i < enemyInfo.handCount; ++i)
             {
                 HandCard slot = handContent.GetChild(i).GetComponent<HandCard>();
@@ -56,7 +59,7 @@ public class PlayerHand : MonoBehaviour
 
     public void UpdateHandCards()
     {
-        if (playerType != PlayerType.ENEMY || !player.hasEnemy)
+        if (playerType != SeatKind.ENEMY || !player.hasEnemy)
         {
             Debug.Log($"PlayerHand.UpdateHandCards: Skipped. playerType: {playerType}, hasEnemy: {player.hasEnemy}");
             return;
@@ -68,8 +71,10 @@ public class PlayerHand : MonoBehaviour
             return;
         }
 
+        if (!Wired()) return;
+
         Debug.Log($"PlayerHand.UpdateHandCards: Updating enemy hand. enemyInfo.handCount: {enemyInfo.handCount}, handContent.childCount: {handContent.childCount}");
-        UIUtils.BalancePrefabs(cardPrefab.gameObject, enemyInfo.handCount, handContent);
+        SlotFiller.Fill(cardPrefab.gameObject, enemyInfo.handCount, handContent);
         for (int i = 0; i < enemyInfo.handCount; ++i)
         {
             HandCard slot = handContent.GetChild(i).GetComponent<HandCard>();
@@ -95,7 +100,7 @@ public class PlayerHand : MonoBehaviour
 
     void DrawCards()
     {
-        if (playerType == PlayerType.PLAYER && player != null && player.isLocalPlayer)
+        if (playerType == SeatKind.PLAYER && player != null && player.isLocalPlayer)
         {
             if (player.deck.spawnInitialCards)
             {
@@ -106,16 +111,27 @@ public class PlayerHand : MonoBehaviour
     }
     public bool IsReady => player != null && player.deck != null;
 
+    private bool Wired()
+    {
+        if (cardPrefab != null && handContent != null) return true;
+
+        Debug.LogWarning($"PlayerHand ({playerType}) on {gameObject.name} is missing " +
+                         $"{(cardPrefab == null ? "cardPrefab" : "handContent")} - this hand cannot be drawn.");
+        return false;
+    }
+
     public void UpdateHandCardsLocal()
     {
-        if (playerType != PlayerType.PLAYER)
+        if (playerType != SeatKind.PLAYER)
             return;
 
         if (player == null || player.deck == null || !player.isLocalPlayer)
             return;
 
+        if (!Wired()) return;
+
         Debug.Log($"PlayerHand.UpdateHandCardsLocal: Updating local hand. hand count: {player.deck.hand.Count}");
-        UIUtils.BalancePrefabs(cardPrefab.gameObject, player.deck.hand.Count, handContent);
+        SlotFiller.Fill(cardPrefab.gameObject, player.deck.hand.Count, handContent);
         for (int i = 0; i < player.deck.hand.Count; ++i)
         {
             HandCard slot = handContent.GetChild(i).GetComponent<HandCard>();
@@ -148,7 +164,7 @@ public class PlayerHand : MonoBehaviour
     }
     public void ClearLocalPlayerHandOutlines()
     {
-        if (playerType != PlayerType.PLAYER || !player.isLocalPlayer)
+        if (playerType != SeatKind.PLAYER || !player.isLocalPlayer)
             return;
 
         foreach (Transform child in handContent)
@@ -161,6 +177,6 @@ public class PlayerHand : MonoBehaviour
         }
     }
 
-    bool IsEnemyHand() => player && player.hasEnemy && playerType == PlayerType.ENEMY;
-    bool IsPlayerHand() => player && player.deck.spawnInitialCards && playerType == PlayerType.PLAYER;
+    bool IsEnemyHand() => player && player.hasEnemy && playerType == SeatKind.ENEMY;
+    bool IsPlayerHand() => player && player.deck.spawnInitialCards && playerType == SeatKind.PLAYER;
 }

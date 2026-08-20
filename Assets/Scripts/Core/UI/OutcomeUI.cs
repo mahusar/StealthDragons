@@ -18,6 +18,9 @@ public class OutcomeUI : MonoBehaviour
     [SerializeField] private Color fairnessPartialColor = new Color(0.95f, 0.8f, 0.35f);
     [SerializeField] private Color fairnessFailColor = new Color(1f, 0.35f, 0.35f);
 
+    [Header("Practice")]
+    [SerializeField] private Button resetButton;
+
     [Header("Winner TXID")]
     [SerializeField] private GameObject txidPanel;
     [SerializeField] private TMP_InputField txidInputField;
@@ -32,6 +35,12 @@ public class OutcomeUI : MonoBehaviour
 
         outcomePanel.SetActive(false); 
         txidPanel.SetActive(false);
+
+        if (resetButton != null)
+        {
+            resetButton.gameObject.SetActive(false);
+            resetButton.onClick.AddListener(OnResetClicked);
+        }
 
         StartCoroutine(InitializeOutcomeDisplay());
     }
@@ -70,9 +79,23 @@ public class OutcomeUI : MonoBehaviour
         }
     }
 
+    private bool Practicing()
+    {
+        return gameManager != null && gameManager.practiceMode;
+    }
+
     public void ShowFairness()
     {
+        if (resetButton != null && resetButton.gameObject.activeSelf != Practicing())
+            resetButton.gameObject.SetActive(Practicing());
+
         if (fairnessText == null) return;
+
+        if (Practicing())
+        {
+            fairnessText.text = "";
+            return;
+        }
 
         if (!LocalShuffleProof.Checked)
         {
@@ -112,6 +135,21 @@ public class OutcomeUI : MonoBehaviour
         return signed
             ? $"Receipt {digest} signed by every player"
             : $"Receipt {digest} is NOT signed by every player";
+    }
+
+    private void OnResetClicked()
+    {
+        PracticeMode practice = PracticeMode.Instance;
+
+        if (practice == null)
+        {
+            Debug.LogWarning("[OutcomeUI] No PracticeMode to restart.");
+            return;
+        }
+
+        if (outcomePanel != null) outcomePanel.SetActive(false);
+
+        practice.Restart();
     }
 
     public void ShowWinnerTxid(string txid)

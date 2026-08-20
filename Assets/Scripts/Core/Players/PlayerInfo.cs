@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using UnityEngine;
 using Mirror;
 
@@ -50,4 +50,4 @@ public partial struct PlayerInfo
 }
 
 // Card List
-public class SyncListPlayerInfo : SyncList<PlayerInfo> { }
+public class SeatList : SyncList<PlayerInfo> { }

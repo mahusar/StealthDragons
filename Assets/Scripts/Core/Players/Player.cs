@@ -1,9 +1,9 @@
-﻿using System;
+using System;
 using UnityEngine;
 using Mirror;
 using System.Collections;
 
-public enum PlayerType { PLAYER, ENEMY };
+public enum SeatKind { PLAYER, ENEMY };
 
 [RequireComponent(typeof(Deck))]
 [Serializable]
@@ -180,12 +180,12 @@ public class Player : Entity
             return;
         }
 
-        FieldCard attacker = attackerId.GetComponent<FieldCard>();
+        BoardCard attacker = attackerId.GetComponent<BoardCard>();
         Entity target = targetId.GetComponent<Entity>();
 
         if (attacker == null || target == null)
         {
-            Debug.LogWarning("CmdRequestAttack rejected: attacker must be a FieldCard and target an Entity.");
+            Debug.LogWarning("CmdRequestAttack rejected: attacker must be a BoardCard and target an Entity.");
             return;
         }
 
@@ -220,13 +220,16 @@ public class Player : Entity
             return;
         }
 
-        if (defender.tauntCount > 0 && !(target is FieldCard targetCard && targetCard.taunt))
+        if (defender.tauntCount > 0 && !(target is BoardCard targetCard && targetCard.taunt))
         {
             Debug.LogWarning($"CmdRequestAttack rejected: {defender.username} has {defender.tauntCount} taunt creature(s); target must be one of them.");
             return;
         }
 
         attacker.hasAttackedThisTurn = true;
+
+        gameManager.ReplayRecordAttack(this, attacker.netId, target.netId, target is Player);
+
         attacker.combat.ServerResolveAttack(attacker.gameObject, target.gameObject);
     }
 

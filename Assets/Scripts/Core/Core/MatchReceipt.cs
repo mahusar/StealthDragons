@@ -25,6 +25,7 @@ public class MatchReceipt
     public string result = "";
     public string reason = "";
     public string stake = "free";
+    public string replay = "";
 
     public List<Seat> seats = new List<Seat>();
 
@@ -41,7 +42,8 @@ public class MatchReceipt
             "mix=" + Clean(mix),
             "result=" + Clean(result),
             "reason=" + Clean(reason),
-            "stake=" + Clean(stake)
+            "stake=" + Clean(stake),
+            "replay=" + Clean(replay)
         };
 
         foreach (Seat seat in seats)
@@ -129,6 +131,7 @@ public class MatchReceipt
                 case "result": receipt.result = value; break;
                 case "reason": receipt.reason = value; break;
                 case "stake": receipt.stake = value; break;
+                case "replay": receipt.replay = value; break;
                 case "player":
                     Seat seat;
                     if (!ParseSeat(value, out seat)) return null;

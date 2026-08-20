@@ -1,7 +1,6 @@
-﻿using UnityEngine;
 using System;
 using Mirror;
-using System.Collections.Generic;
+using UnityEngine;
 
 [Serializable]
 public abstract partial class Entity : NetworkBehaviour
@@ -16,7 +15,7 @@ public abstract partial class Entity : NetworkBehaviour
 
     [Header("Targeting Arrow")]
     public Target casterType;
-    public TargetingArrow arrow;
+    public AimLine arrow;
     public Transform spawnOffset;
     [HideInInspector] public bool isTargeting = false;
     [HideInInspector] public GameObject arrowObject;
@@ -26,37 +25,76 @@ public abstract partial class Entity : NetworkBehaviour
     [Header("Special Properties")]
     [SyncVar] public int waitTurn = 1;
     [SyncVar] public bool hasAttackedThisTurn = false;
+    [SyncVar] public bool shielded = false;
     public bool taunt = false;
 
-    public bool IsDead() => health <= 0;
-    public bool CanAttack() => Player.gameManager != null && Player.gameManager.isOurTurn && waitTurn == 0 && !hasAttackedThisTurn && casterType == Target.FRIENDLIES;
-    public bool CantAttack() => Player.gameManager != null && Player.gameManager.isOurTurn && (waitTurn > 0 || hasAttackedThisTurn) && casterType == Target.FRIENDLIES;
+    public bool IsDead()
+    {
+        return health <= 0;
+    }
+
+    public bool Ours()
+    {
+        return casterType == Target.FRIENDLIES &&
+               Player.gameManager != null &&
+               Player.gameManager.isOurTurn;
+    }
+
+    public bool CanAttack()
+    {
+        return Ours() && waitTurn == 0 && !hasAttackedThisTurn;
+    }
+
+    public bool CantAttack()
+    {
+        return Ours() && (waitTurn > 0 || hasAttackedThisTurn);
+    }
 
     public virtual void SpawnTargetingArrow(CardInfo card, bool IsAbility = false)
     {
-        Player.localPlayer.isTargeting = true;
+        if (arrow == null)
+        {
+            Debug.LogWarning("Entity: " + name + " has no aim line assigned, so it cannot target.");
+            return;
+        }
+
+        Vector3 from = spawnOffset != null ? spawnOffset.position : transform.position;
+
+        arrowObject = Instantiate(arrow.gameObject, from, Quaternion.identity);
+
+        AimLine line = arrowObject.GetComponent<AimLine>();
+
+        if (line == null)
+        {
+            Debug.LogWarning("Entity: the aim line prefab carries no AimLine component.");
+            Destroy(arrowObject);
+            arrowObject = null;
+            return;
+        }
+
         isTargeting = true;
+        if (Player.localPlayer != null) Player.localPlayer.isTargeting = true;
 
         Cursor.visible = false;
 
-        Vector3 spawnPos = spawnOffset == null ? transform.position : spawnOffset.position;
-        arrowObject = Instantiate(arrow.gameObject, spawnPos, Quaternion.identity);
-        arrowObject.GetComponent<TargetingArrow>().DrawLine(this, card, spawnPos, IsAbility);
+        line.DrawLine(this, card, from, IsAbility);
     }
 
     public void DestroyTargetingArrow()
     {
-        Player.localPlayer.isTargeting = false;
         isTargeting = false;
+        if (Player.localPlayer != null) Player.localPlayer.isTargeting = false;
+
         Cursor.visible = true;
+
+        if (arrowObject == null) return;
+
         Destroy(arrowObject);
+        arrowObject = null;
     }
 
     public virtual void Update()
     {
-        if (isTargeting && Input.GetMouseButton(1))
-        {
-            DestroyTargetingArrow();
-        }
+        if (isTargeting && Input.GetMouseButton(1)) DestroyTargetingArrow();
     }
 }

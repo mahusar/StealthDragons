@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 using Mirror;
 using System.Collections;
 using System.Collections.Generic;
@@ -10,13 +10,13 @@ public class Deck : NetworkBehaviour
     [HideInInspector] public int deckSize = 30;
     [HideInInspector] public int handSize = 7;
     [Header("Decks")]
-    public SyncListCard deckList = new SyncListCard();
-    public SyncListCard graveyard = new SyncListCard();
-    public SyncListCard hand = new SyncListCard();
+    public CardList deckList = new CardList();
+    public CardList graveyard = new CardList();
+    public CardList hand = new CardList();
     [Header("Battlefield")]
-    public SyncListCard playerField = new SyncListCard();
+    public CardList playerField = new CardList();
     [Header("Starting Deck")]
-    public CardAndAmount[] startingDeck;
+    public DeckEntry[] startingDeck;
     [HideInInspector] public bool spawnInitialCards = true;
 
     private bool handCallbackRegistered;
@@ -96,7 +96,7 @@ public class Deck : NetworkBehaviour
 
         for (int i = 0; i < startingDeck.Length; ++i)
         {
-            CardAndAmount card = startingDeck[i];
+            DeckEntry card = startingDeck[i];
             for (int v = 0; v < card.amount; ++v) composition.Add(new CardInfo(card.card));
         }
 
@@ -262,14 +262,14 @@ public class Deck : NetworkBehaviour
         int totalCards = 0;
         for (int i = 0; i < startingDeck.Length; ++i)
         {
-            CardAndAmount card = startingDeck[i];
+            DeckEntry card = startingDeck[i];
             string cardName = card.card != null ? card.card.name : "null";
             totalCards += card.amount;
         }
 
         for (int i = 0; i < startingDeck.Length; ++i)
         {
-            CardAndAmount card = startingDeck[i];
+            DeckEntry card = startingDeck[i];
             for (int v = 0; v < card.amount; ++v)
             {
                 deckList.Add(new CardInfo(card.card));
@@ -352,13 +352,13 @@ public class Deck : NetworkBehaviour
     }
 
     [Command]
-    public void CmdPlayCard(int index)
+    public void CmdPlayCard(int index, int slot)
     {
-        ServerPlayCard(index);
+        ServerPlayCard(index, slot);
     }
 
     [Server]
-    public void ServerPlayCard(int index)
+    public void ServerPlayCard(int index, int slot = -1)
     {
         GameManager gm = FindFirstObjectByType<GameManager>();
         if (gm == null || !gm.IsTurnOf(player))
@@ -390,9 +390,9 @@ public class Deck : NetworkBehaviour
         player.combat.ServerChangeMana(-manaCost);
 
         GameObject boardCard = Instantiate(creature.cardPrefab.gameObject);
-        FieldCard newCard = boardCard.GetComponent<FieldCard>();
+        BoardCard newCard = boardCard.GetComponent<BoardCard>();
         newCard.card = new CardInfo(card.data);
-        newCard.cardName.text = card.name;
+        newCard.cardName.text = card.displayName;
         newCard.health = creature.health;
         newCard.strength = creature.strength;
         newCard.image.sprite = card.image;
@@ -408,17 +408,21 @@ public class Deck : NetworkBehaviour
 
         if (creature.hasCharge) newCard.waitTurn = 0;
 
+        newCard.shielded = creature.hasShield;
+
         newCard.cardHover.UpdateFieldCardInfo(card);
 
         NetworkServer.Spawn(boardCard);
 
         hand.RemoveAt(index);
 
-        if (isServer) RpcPlayCard(boardCard);
+        gm.ReplayRecordPlay(player, index, card.cardID, newCard != null ? newCard.netId : 0);
+
+        if (isServer) RpcPlayCard(boardCard, slot);
     }
 
     [ClientRpc]
-    public void RpcPlayCard(GameObject boardCard)
+    public void RpcPlayCard(GameObject boardCard, int slot)
     {
         if (boardCard == null)
         {
@@ -436,15 +440,15 @@ public class Deck : NetworkBehaviour
             return;
         }
 
-        FieldCard fieldCard = boardCard.GetComponent<FieldCard>();
+        BoardCard fieldCard = boardCard.GetComponent<BoardCard>();
         if (fieldCard == null)
         {
-            Debug.LogWarning($"Deck: RpcPlayCard ignored - {boardCard.name} has no FieldCard component.");
+            Debug.LogWarning($"Deck: RpcPlayCard ignored - {boardCard.name} has no BoardCard component.");
             return;
         }
 
         bool mine = isLocalPlayer;
-        PlayerField field = mine ? gm.playerField : gm.enemyField;
+        Battlefield field = mine ? gm.playerField : gm.enemyField;
         if (field == null || field.content == null)
         {
             Debug.LogWarning($"Deck: RpcPlayCard ignored - the {(mine ? "player" : "enemy")} field is not assigned on this client.");
@@ -453,6 +457,8 @@ public class Deck : NetworkBehaviour
 
         fieldCard.casterType = mine ? Target.FRIENDLIES : Target.ENEMIES;
         boardCard.transform.SetParent(field.content, false);
+
+        if (slot >= 0 && slot < field.content.childCount) boardCard.transform.SetSiblingIndex(slot);
         CardPlayAnimator.PlayEntry(boardCard.transform);
     }
     #endregion

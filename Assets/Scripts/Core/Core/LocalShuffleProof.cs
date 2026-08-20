@@ -22,6 +22,12 @@ public static class LocalShuffleProof
     public static string Result { get; private set; }
     public static bool Checked { get; private set; }
     public static bool Passed { get; private set; }
+
+    public static void Watching()
+    {
+        Passed = false;
+        Result = "Watching a replay - this match was played by someone else.";
+    }
     public static string Committed { get; private set; }
     public static int Unverified { get; private set; }
 

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using UnityEngine;
 using UnityEngine.UI;
 using Mirror;
@@ -26,8 +26,8 @@ public class GameManager : NetworkBehaviour
     public int identicalCardCount = 2;
 
     [Header("Battlefield")]
-    public PlayerField playerField;
-    public PlayerField enemyField;
+    public Battlefield playerField;
+    public Battlefield enemyField;
 
     [Header("Turn Management")]
     public GameObject endTurnButton;
@@ -104,6 +104,13 @@ public class GameManager : NetworkBehaviour
     {
         if (string.IsNullOrEmpty(newValue)) return;
 
+        if (ReplayMatch.Active)
+        {
+            LocalShuffleProof.Watching();
+            RefreshOutcomeUI();
+            return;
+        }
+
         LocalShuffleProof.Published published = new LocalShuffleProof.Published
         {
             commitment = shuffleCommitment,
@@ -140,10 +147,10 @@ public class GameManager : NetworkBehaviour
     [Tooltip("Seconds a player gets per turn before the turn is passed automatically.")]
     public float turnSeconds = 60f;
     [Tooltip("Seconds remaining at which the countdown turns to the warning colour.")]
-    public float turnWarningSeconds = 10f;
+    public float turnWarningSeconds = 20f;
     public TMP_Text turnTimerText;
     public Color turnTimerColor = Color.white;
-    public Color turnTimerWarningColor = new Color(1f, 0.35f, 0.35f);
+    public Color turnTimerWarningColor = new Color(1f, 0.16f, 0.16f);
 
     [SyncVar, HideInInspector] public double turnDeadline;
 
@@ -161,7 +168,7 @@ public class GameManager : NetworkBehaviour
 
     [HideInInspector] public bool isHoveringField = false;
 
-    public SyncListPlayerInfo players = new SyncListPlayerInfo();
+    public SeatList players = new SeatList();
     public List<GameOutcome> gameOutcomes = new List<GameOutcome>();
 
     public struct GameOutcome
@@ -220,11 +227,28 @@ public class GameManager : NetworkBehaviour
         {
             Debug.LogError($"GameManager: the match receipt could not be built ({e.GetType().Name}: {e.Message}). The match result and any payout are unaffected.");
         }
+
+        ServerStopTheClock();
+    }
+
+    [Server]
+    private void ServerStopTheClock()
+    {
+        currentTurnNetId = 0;
+        turnDeadline = 0d;
+
+        Debug.Log("GameManager: the match is over, so the turn clock is stopped and no further turn begins.");
     }
 
     [Server]
     private void ServerPublishReceipt(Player winner, string reason)
     {
+        if (MatchFairness.Replaying)
+        {
+            Debug.Log("GameManager: this was a replay, so no receipt and no replay file are written.");
+            return;
+        }
+
         MatchReceipt receipt = new MatchReceipt
         {
             server = practiceMode ? "practice" : ServerBanner.OnionAddress(),
@@ -265,6 +289,8 @@ public class GameManager : NetworkBehaviour
             return;
         }
 
+        receipt.replay = ServerWriteReplay(receipt, reason);
+
         serverSignatures.Clear();
         matchReceiptSignatures = "";
         matchReceipt = receipt.Canonical();
@@ -272,6 +298,186 @@ public class GameManager : NetworkBehaviour
         Debug.Log($"GameManager: published the match receipt, digest {receipt.DigestHex()}, {receipt.seats.Count} seat(s).");
 
         ServerSignSeatsWeHoldKeysFor(receipt);
+        ServerAskBotsToSign(receipt);
+    }
+
+    [HideInInspector] public MatchReplay replay;
+
+    [Server]
+    private MatchReplay ServerReplay()
+    {
+        if (replay == null) replay = new MatchReplay();
+        return replay;
+    }
+
+    [Server]
+    public void ReplayRecordTurn(uint playerNetId)
+    {
+        MatchReplay log = ServerReplay();
+
+        log.RecordTurn(turnCount, playerNetId);
+        log.RecordCheck(turnCount, ServerBoardState());
+    }
+
+    [Server]
+    public void ReplayRecordPlay(Player owner, int handIndex, string cardId, uint cardNetId)
+    {
+        if (owner == null) return;
+
+        ServerReplay().RecordPlay(owner.netId, handIndex, cardId, cardNetId);
+    }
+
+    [Server]
+    public void ReplayRecordAttack(Player owner, uint attackerNetId, uint targetNetId, bool targetIsPlayer)
+    {
+        if (owner == null) return;
+
+        ServerReplay().RecordAttack(owner.netId, attackerNetId, targetNetId, targetIsPlayer);
+    }
+
+    [Server]
+    public void ReplayRecordEnd(Player owner)
+    {
+        if (owner == null) return;
+
+        ServerReplay().RecordEnd(owner.netId);
+    }
+
+    [Server]
+    private string ServerBoardState()
+    {
+        MatchReplay log = ServerReplay();
+        List<string> parts = new List<string>();
+
+        foreach (Player entry in FindObjectsByType<Player>(FindObjectsSortMode.None))
+        {
+            if (entry == null) continue;
+
+            StringBuilder sb = new StringBuilder();
+
+            sb.Append(log.SeatOf(entry.netId)).Append('/')
+              .Append(entry.health).Append('/')
+              .Append(entry.mana).Append('/')
+              .Append(entry.deck != null ? entry.deck.hand.Count : 0);
+
+            List<string> field = new List<string>();
+
+            foreach (BoardCard card in FindObjectsByType<BoardCard>(FindObjectsSortMode.None))
+            {
+                if (card == null || card.owner != entry) continue;
+                if (card.health <= 0) continue;
+
+                field.Add(log.StableOf(card.netId) + "=" + card.strength + "/" + card.health +
+                          "/" + card.waitTurn + (card.hasAttackedThisTurn ? "a" : ""));
+            }
+
+            field.Sort(StringComparer.Ordinal);
+            sb.Append('[').Append(string.Join(",", field.ToArray())).Append(']');
+
+            parts.Add(sb.ToString());
+        }
+
+        parts.Sort(StringComparer.Ordinal);
+
+        return string.Join("|", parts.ToArray());
+    }
+
+    [Server]
+    private string ServerWriteReplay(MatchReceipt receipt, string reason)
+    {
+        MatchReplay log = replay;
+
+        if (log == null || log.Moves == 0)
+        {
+            Debug.Log("GameManager: no moves were recorded, so this match gets no replay.");
+            return "";
+        }
+
+        try
+        {
+            log.match = shuffleCommitment;
+            log.seed = shuffleReveal;
+            log.mix = shuffleContributions;
+            log.result = receipt.result;
+            log.reason = reason;
+
+            log.seats.Clear();
+
+            foreach (MatchReceipt.Seat seat in receipt.seats)
+                log.seats.Add(new MatchReplay.Seat
+                {
+                    index = log.SeatOf(seat.netId),
+                    netId = seat.netId,
+                    username = seat.username,
+                    publicKeyHex = seat.publicKeyHex
+                });
+
+            log.seats.Sort(delegate (MatchReplay.Seat left, MatchReplay.Seat right)
+            {
+                return left.index.CompareTo(right.index);
+            });
+
+            log.Seal();
+
+            string digest = log.DigestHex();
+
+            if (!MatchReplayStore.Save(digest, log.Canonical())) return "";
+
+            Debug.Log($"GameManager: wrote the match replay {digest}, {log.Moves} move(s).");
+
+            return digest;
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"GameManager: the match replay could not be written ({e.GetType().Name}: {e.Message}). " +
+                           "The match result and any payout are unaffected.");
+            return "";
+        }
+    }
+
+    [Server]
+    private void ServerAskBotsToSign(MatchReceipt receipt)
+    {
+        RemoteBrain[] brains = FindObjectsByType<RemoteBrain>(FindObjectsSortMode.None);
+        if (brains.Length == 0) return;
+
+        string digest = receipt.DigestHex();
+
+        foreach (RemoteBrain brain in brains)
+        {
+            if (brain == null || string.IsNullOrEmpty(brain.BotKey)) continue;
+            if (serverSignatures.ContainsKey(brain.BotKey)) continue;
+
+            brain.ServerRequestReceiptSignature(digest);
+        }
+    }
+
+    [Server]
+    public void ServerAcceptBotSignature(string publicKeyHex, string signatureHex)
+    {
+        if (string.IsNullOrEmpty(matchReceipt) || string.IsNullOrEmpty(publicKeyHex)) return;
+
+        MatchReceipt receipt = MatchReceipt.Parse(matchReceipt);
+        if (receipt == null) return;
+
+        bool seated = false;
+        foreach (MatchReceipt.Seat seat in receipt.seats)
+            if (seat.publicKeyHex == publicKeyHex) seated = true;
+
+        if (!seated)
+        {
+            Debug.LogWarning($"GameManager: {Short(publicKeyHex)} offered a receipt signature but holds no seat - ignored.");
+            return;
+        }
+
+        if (!PlayerIdentity.Verify(publicKeyHex, receipt.Digest(), signatureHex))
+        {
+            Debug.LogWarning($"GameManager: the bot {Short(publicKeyHex)} sent a receipt signature that does not verify - ignored.");
+            return;
+        }
+
+        ServerRecordSignature(publicKeyHex, signatureHex);
+        Debug.Log($"GameManager: the bot {Short(publicKeyHex)} signed the match receipt.");
     }
 
     [Server]
@@ -517,7 +723,7 @@ public class GameManager : NetworkBehaviour
     [Server]
     private IEnumerator ServerSealSeedsThenDeal(NetworkIdentity firstPlayerIdentity, Player first)
     {
-        int expected = ServerExpectedContributors();
+        int expected = MatchFairness.Replaying ? 0 : ServerExpectedContributors();
         float deadline = Time.realtimeSinceStartup + shuffleSeedSeconds;
 
         while (Time.realtimeSinceStartup < deadline && MatchFairness.Committed < expected)
@@ -563,13 +769,15 @@ public class GameManager : NetworkBehaviour
     {
         currentTurnNetId = player.netId;
 
+        ReplayRecordTurn(player.netId);
+
         if (player.mana < player.maxMana)
         {
             player.currentMax++;
             player.mana = player.currentMax;
         }
 
-        foreach (FieldCard card in FindObjectsByType<FieldCard>(FindObjectsSortMode.None))
+        foreach (BoardCard card in FindObjectsByType<BoardCard>(FindObjectsSortMode.None))
             if (card.owner == player) card.ServerBeginTurn();
 
         if (player.deck != null) player.deck.ServerDrawCards(1);
@@ -753,11 +961,25 @@ public class GameManager : NetworkBehaviour
         if (isHoveringField) return;
         if (cardObject == null) return;
 
-        FieldCard card = cardObject.GetComponent<FieldCard>();
+        BoardCard card = cardObject.GetComponent<BoardCard>();
         if (card == null || card.shine == null) return;
 
         Color shine = activateShine ? card.hoverColor : Color.clear;
         card.shine.color = targeting ? card.targetColor : shine;
+    }
+
+    [Command(requiresAuthority = false)]
+    public void CmdAimAt(GameObject aimedAt, bool aimed)
+    {
+        if (aimedAt == null) return;
+
+        RpcAimAt(aimedAt, aimed);
+    }
+
+    [ClientRpc]
+    private void RpcAimAt(GameObject aimedAt, bool aimed)
+    {
+        AimHighlight.Paint(aimedAt, aimed);
     }
 
     public void OnEndTurnClicked()
@@ -793,6 +1015,12 @@ public class GameManager : NetworkBehaviour
     [Server]
     public void ServerEndTurn(Player current)
     {
+        if (matchEnded)
+        {
+            Debug.Log("GameManager: the match is over, so no turn is passed.");
+            return;
+        }
+
         if (current == null)
         {
             Debug.LogWarning("GameManager: ServerEndTurn called with no player.");
@@ -812,6 +1040,8 @@ public class GameManager : NetworkBehaviour
             return;
         }
 
+        ReplayRecordEnd(current);
+
         turnCount++;
         ServerBeginTurnFor(next);
     }
@@ -826,5 +1056,7 @@ public class GameManager : NetworkBehaviour
 
         if (wasOurTurn && !isOurTurn && playerHand != null)
             playerHand.ClearLocalPlayerHandOutlines();
+
+        AimHighlight.Clear();
     }
 }

@@ -18,6 +18,10 @@ public static class MatchFairness
 
     public static bool Settled { get { return settled; } }
 
+    public static bool Replaying { get; private set; }
+
+    private static readonly Dictionary<uint, uint> replaySeats = new Dictionary<uint, uint>();
+
     public static bool Sealed { get { return sealedSeeds; } }
 
     public static int Contributors { get { return clientSeeds.Count; } }
@@ -33,6 +37,11 @@ public static class MatchFairness
 
             return true;
         }
+    }
+
+    public static byte[] Entropy
+    {
+        get { return settled ? matchSeed : null; }
     }
 
     public static string CommitmentHex { get { return CardShuffle.Hex(commitment); } }
@@ -103,6 +112,9 @@ public static class MatchFairness
         seedCommitments.Clear();
         clientSeeds.Clear();
         dealtOrders.Clear();
+        Replaying = false;
+        replaySeats.Clear();
+        MatchRandom.Reset();
 
         Debug.Log("MatchFairness: committed to a shuffle before any card was dealt. commitment=" + CommitmentHex);
     }
@@ -201,7 +213,49 @@ public static class MatchFairness
     {
         if (!settled) Settle();
 
-        return CardShuffle.PlayerSeed(matchSeed, playerNetId);
+        uint dealtAs = playerNetId;
+
+        if (Replaying && replaySeats.ContainsKey(playerNetId)) dealtAs = replaySeats[playerNetId];
+
+        return CardShuffle.PlayerSeed(matchSeed, dealtAs);
+    }
+
+    public static bool BeginReplay(string seedHex, string contributions)
+    {
+        Clear();
+
+        byte[] recorded = CardShuffle.FromHex(seedHex);
+        if (recorded == null)
+        {
+            Debug.LogError("MatchFairness: the replay carries no readable seed.");
+            return false;
+        }
+
+        byte[] rebuilt = LocalShuffleProof.MatchSeedFrom(recorded, contributions);
+        if (rebuilt == null)
+        {
+            Debug.LogError("MatchFairness: the replay's seed contributions could not be read.");
+            return false;
+        }
+
+        serverSeed = recorded;
+        commitment = CardShuffle.Commitment(recorded);
+        matchSeed = rebuilt;
+        settled = true;
+        sealedSeeds = true;
+        Replaying = true;
+        MatchRandom.Reset();
+
+        Debug.Log("MatchFairness: replaying a match dealt from seed " +
+                  CardShuffle.Hex(recorded).Substring(0, 16) + ".");
+        return true;
+    }
+
+    public static void MapReplaySeat(uint liveNetId, uint recordedNetId)
+    {
+        if (!Replaying) return;
+
+        replaySeats[liveNetId] = recordedNetId;
     }
 
     public static void Clear()
@@ -214,6 +268,9 @@ public static class MatchFairness
         seedCommitments.Clear();
         clientSeeds.Clear();
         dealtOrders.Clear();
+        Replaying = false;
+        replaySeats.Clear();
+        MatchRandom.Reset();
     }
 
     private static List<uint> Sorted<T>(Dictionary<uint, T> map)

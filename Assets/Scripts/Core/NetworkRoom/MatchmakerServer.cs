@@ -186,6 +186,11 @@ public class MatchmakerServer : MonoBehaviour
         {
             writer.WriteLine(ServerDirectory.ToWire());
         }
+        else if (message.StartsWith("GET_REPLAY"))
+        {
+            string[] data = message.Split('|');
+            writer.WriteLine(MatchReplayStore.Wire(data.Length > 1 ? data[1].Trim() : ""));
+        }
         else if (message.StartsWith("GET_RECEIPT"))
         {
             string[] data = message.Split('|');

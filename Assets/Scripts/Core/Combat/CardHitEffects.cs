@@ -12,12 +12,49 @@ public static class CardHitEffects
 
     public static float sideOffset = 55f;
 
+    public static float wordShare = 0.45f;
+
+    private static Transform PopupLayer(Transform card)
+    {
+        Canvas canvas = card.GetComponentInParent<Canvas>();
+
+        return canvas != null ? canvas.transform : card;
+    }
+
     public static void ShowDelta(Text template, Transform card, int delta, float delay, float offsetX)
     {
-        if (template == null || card == null || delta == 0) return;
+        if (delta == 0) return;
 
-        GameObject popup = Object.Instantiate(template.gameObject, card, false);
+        Show(template, card, delta > 0 ? "+" + delta : delta.ToString(),
+             delta > 0 ? healColor : damageColor, delay, offsetX, 1f);
+    }
+
+    public static void ShowWord(Text template, Transform card, string word, Color tint, float delay, float offsetX)
+    {
+        if (string.IsNullOrEmpty(word)) return;
+
+        Show(template, card, word, tint, delay, offsetX, wordShare);
+    }
+
+    private static void Show(Text template, Transform card, string text, Color tint,
+                             float delay, float offsetX, float fontShare)
+    {
+        if (template == null || card == null) return;
+
+        Transform layer = PopupLayer(card);
+
+        GameObject popup = Object.Instantiate(template.gameObject, layer, false);
         popup.name = "DamagePopup";
+
+        popup.transform.position = card.position;
+
+        Vector3 want = template.transform.lossyScale;
+        Vector3 host = layer.lossyScale;
+
+        popup.transform.localScale = new Vector3(
+            host.x != 0f ? want.x / host.x : 1f,
+            host.y != 0f ? want.y / host.y : 1f,
+            1f);
 
         Text label = popup.GetComponent<Text>();
         if (label == null)
@@ -26,9 +63,18 @@ public static class CardHitEffects
             return;
         }
 
-        label.text = delta > 0 ? "+" + delta : delta.ToString();
-        label.color = delta > 0 ? healColor : damageColor;
+        label.text = text;
+        label.color = tint;
         label.raycastTarget = false;
+
+        if (fontShare != 1f)
+        {
+            label.resizeTextForBestFit = false;
+            label.horizontalOverflow = HorizontalWrapMode.Overflow;
+            label.verticalOverflow = VerticalWrapMode.Overflow;
+            label.alignment = TextAnchor.MiddleCenter;
+            label.fontSize = Mathf.Max(1, Mathf.RoundToInt(label.fontSize * fontShare));
+        }
 
         RectTransform rect = popup.GetComponent<RectTransform>();
         rect.anchoredPosition = new Vector2(rect.anchoredPosition.x + offsetX, rect.anchoredPosition.y);

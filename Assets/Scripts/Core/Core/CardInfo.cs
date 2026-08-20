@@ -1,39 +1,90 @@
-﻿// Learn more : https://mirror-networking.com/docs/Guides/DataTypes.html#scriptable-objects
 using System;
-using UnityEngine;
-using Mirror;
 using System.Collections.Generic;
+using Mirror;
+using UnityEngine;
 
 [Serializable]
 public partial struct CardInfo
 {
-    // A uniqueID (unique identifier) used to help identify which ScriptableCard is which when we acess ScriptableCard data.
-    // If any ScriptableCards share the same uniqueID, Unity will return a bunch of errors.
     public string cardID;
-    public int amount; // Used for deck building only. Serves no purpose once the card is in the game / on the board.
+    public int amount;
 
-    public CardInfo(ScriptableCard data, int amount = 1)
+    public CardInfo(CardDefinition card, int amount = 1)
     {
-        cardID = data.CardID;
+        cardID = card != null ? card.CardID : "";
         this.amount = amount;
     }
 
-    public ScriptableCard data
+    public bool Known
+    {
+        get { return !string.IsNullOrEmpty(cardID) && CardDefinition.Cache.ContainsKey(cardID); }
+    }
+
+    public CardDefinition data
     {
         get
         {
-            // Return ScriptableCard from our cached list, based on the card's uniqueID.
-            return ScriptableCard.Cache[cardID];
+            CardDefinition found;
+
+            if (CardDefinition.Cache.TryGetValue(cardID ?? "", out found)) return found;
+
+            throw new KeyNotFoundException("No card asset carries the id " + cardID +
+                                           ". Check that it still lives under a Resources folder.");
         }
     }
 
-    public Sprite image => data.image;
-    public string name => data.name; // Scriptable Card name (name of the file)
-    public string cost => data.cost.ToString();
-    public string description => data.description;
+    public Sprite image
+    {
+        get { return data.image; }
+    }
 
-    public List<Target> acceptableTargets => ((CreatureCard)data).acceptableTargets;
+    public string name
+    {
+        get { return data.name; }
+    }
+
+    public string displayName
+    {
+        get { return Pretty(data != null ? data.name : ""); }
+    }
+
+    public static string Pretty(string raw)
+    {
+        if (string.IsNullOrEmpty(raw)) return "";
+
+        int mark = raw.IndexOf('_');
+        if (mark <= 0 || mark + 1 >= raw.Length) return raw;
+
+        for (int i = 0; i < mark; i++)
+            if (!char.IsDigit(raw[i])) return raw;
+
+        return raw.Substring(mark + 1);
+    }
+
+    public string cost
+    {
+        get { return data.cost.ToString(); }
+    }
+
+    public string description
+    {
+        get { return data.description; }
+    }
+
+    public List<Target> acceptableTargets
+    {
+        get
+        {
+            CreatureCard creature = data as CreatureCard;
+
+            return creature != null ? creature.acceptableTargets : new List<Target>();
+        }
+    }
+
+    public override string ToString()
+    {
+        return amount > 1 ? cardID + " x" + amount : cardID;
+    }
 }
 
-// Card List
-public class SyncListCard : SyncList<CardInfo> { }
+public class CardList : SyncList<CardInfo> { }

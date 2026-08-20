@@ -32,6 +32,8 @@ public static class AddonLoader
     private static string escrowOwner;
     private static IMatchWitness witness;
     private static string witnessOwner;
+    private static IMatchBot bots;
+    private static string botsOwner;
 
     private static readonly List<IServerWallet> wallets = new List<IServerWallet>();
 
@@ -64,6 +66,15 @@ public static class AddonLoader
         {
             EnsureLoaded();
             return witness;
+        }
+    }
+
+    public static IMatchBot Bots
+    {
+        get
+        {
+            EnsureLoaded();
+            return bots;
         }
     }
 
@@ -158,10 +169,12 @@ public static class AddonLoader
             int added = RegisterOptions(types, shown);
             bool escrowAdded = RegisterEscrow(types, shown);
             bool witnessAdded = RegisterWitness(types, shown);
+            bool botsAdded = RegisterBots(types, shown);
             int walletsAdded = RegisterWallets(types, shown);
             int directoriesAdded = RegisterDirectories(types, shown);
 
-            if (added == 0 && !escrowAdded && !witnessAdded && walletsAdded == 0 && directoriesAdded == 0)
+            if (added == 0 && !escrowAdded && !witnessAdded && !botsAdded &&
+                walletsAdded == 0 && directoriesAdded == 0)
             {
                 failures.Add(shown + ": nothing Dragonator can use inside it");
                 return;
@@ -267,6 +280,39 @@ public static class AddonLoader
 
                 witness = found;
                 witnessOwner = shown;
+                return true;
+            }
+            catch (Exception e)
+            {
+                failures.Add(shown + " (" + type.Name + "): " + Shorten(e.Message));
+            }
+        }
+
+        return false;
+    }
+
+    private static bool RegisterBots(Type[] types, string shown)
+    {
+        foreach (Type type in types)
+        {
+            if (type == null) continue;
+            if (type.IsAbstract || type.IsInterface) continue;
+            if (!typeof(IMatchBot).IsAssignableFrom(type)) continue;
+
+            if (bots != null)
+            {
+                failures.Add(shown + ": a match bot provider is already installed by " + botsOwner +
+                             " - remove one of them");
+                return false;
+            }
+
+            try
+            {
+                IMatchBot found = Activator.CreateInstance(type) as IMatchBot;
+                if (found == null) continue;
+
+                bots = found;
+                botsOwner = shown;
                 return true;
             }
             catch (Exception e)
