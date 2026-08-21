@@ -84,14 +84,22 @@ public class HandCard : MonoBehaviour
         if (cardName != null) cardName.text = card.displayName;
 
         CreatureCard creature = card.data as CreatureCard;
-        if (creature == null) return;
+
+        ShowBody(creature != null);
+        ShowDeathrattle(creature);
+
+        if (creature == null)
+        {
+            if (creatureType != null) Keyword.Fit(creatureType, null);
+            if (creatureType != null) creatureType.text = SpellText.Line(card.data as SpellCard);
+            if (creatureType != null) creatureType.color = SpellText.Tint;
+            return;
+        }
 
         if (health != null) health.text = creature.health.ToString();
         if (strength != null) strength.text = creature.strength.ToString();
 
         if (creatureType == null) return;
-
-        ShowDeathrattle(creature);
 
         string words = Keyword.Label(creature);
 
@@ -139,6 +147,12 @@ public class HandCard : MonoBehaviour
         rect.sizeDelta = deathrattleSize;
 
         return deathrattleValue;
+    }
+
+    private void ShowBody(bool show)
+    {
+        if (strength != null && strength.gameObject.activeSelf != show) strength.gameObject.SetActive(show);
+        if (health != null && health.gameObject.activeSelf != show) health.gameObject.SetActive(show);
     }
 
     private void Face(bool up)

@@ -106,6 +106,12 @@ public class BuiltInBotChannel : IBotChannel
             if (swing != null) return swing;
         }
 
+        if (skill != BotSkill.Easy)
+        {
+            string spell = ChooseSpell(board);
+            if (spell != null) return spell;
+        }
+
         string play = ChooseCreature(board, skill);
         if (play != null) return play;
 
@@ -150,6 +156,72 @@ public class BuiltInBotChannel : IBotChannel
             return BotAction.Play + " " + first.ToString(CultureInfo.InvariantCulture);
 
         return null;
+    }
+
+    private static string ChooseSpell(JObject board)
+    {
+        int mana = Number(board["you"], "mana");
+        bool walled = Walled(board);
+
+        string best = null;
+        int bestScore = 0;
+
+        foreach (JToken card in Array(board, "hand"))
+        {
+            if (Word(card, "kind") != "spell") continue;
+
+            int cost = Number(card, "cost");
+            if (cost > mana) continue;
+
+            int hit = -Number(card, "healthChange");
+            if (hit <= 0) continue;
+
+            if (!Flag(card, "targeted"))
+            {
+                if (Word(card, "affects") != "enemies") continue;
+
+                int kills = 0;
+                int touched = 0;
+
+                foreach (JToken enemy in Array(board, "enemyField"))
+                {
+                    int health = Number(enemy, "health");
+                    if (health <= 0) continue;
+
+                    touched++;
+                    if (health <= hit && !Flag(enemy, "shield")) kills++;
+                }
+
+                if (kills == 0 && touched < 2) continue;
+
+                int sweep = kills * 20 + touched * 4 - cost;
+                if (sweep <= bestScore) continue;
+
+                bestScore = sweep;
+                best = BotAction.Cast + " " + Number(card, "index").ToString(CultureInfo.InvariantCulture);
+                continue;
+            }
+
+            foreach (JToken enemy in Array(board, "enemyField"))
+            {
+                if (!Flag(enemy, "targetable")) continue;
+                if (Flag(enemy, "shield")) continue;
+                if (walled && !Flag(enemy, "taunt")) continue;
+
+                int health = Number(enemy, "health");
+                if (health <= 0 || health > hit) continue;
+
+                int score = 20 + Body(enemy) - cost;
+                if (score <= bestScore) continue;
+
+                bestScore = score;
+                best = BotAction.Cast + " " +
+                       Number(card, "index").ToString(CultureInfo.InvariantCulture) + " " +
+                       Number(enemy, "netId").ToString(CultureInfo.InvariantCulture);
+            }
+        }
+
+        return best;
     }
 
     private static List<JToken> Rushers(JObject board)

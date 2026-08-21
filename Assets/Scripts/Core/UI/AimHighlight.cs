@@ -20,6 +20,18 @@ public static class AimHighlight
         if (portrait != null) portrait.ShowAimed(aimed);
     }
 
+    public static void Show(SpellCard spell, Player caster, bool on)
+    {
+        if (!on)
+        {
+            Clear();
+            return;
+        }
+
+        foreach (BoardCard card in Spellbook.Preview(spell, caster))
+            if (card != null) card.ShowAimed(true);
+    }
+
     public static void Clear()
     {
         foreach (BoardCard card in Object.FindObjectsByType<BoardCard>(FindObjectsSortMode.None))

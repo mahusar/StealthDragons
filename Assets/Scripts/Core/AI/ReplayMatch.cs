@@ -79,6 +79,13 @@ public class ReplayMatch : MonoBehaviour
             return false;
         }
 
+        string mismatch;
+        if (!CardsMatch(watched, out mismatch))
+        {
+            Trouble = mismatch;
+            return false;
+        }
+
         PracticeMode practice = FindFirstObjectByType<PracticeMode>();
         if (practice == null)
         {
@@ -107,6 +114,28 @@ public class ReplayMatch : MonoBehaviour
 
         practice.StartPractice();
         return true;
+    }
+
+    private static bool CardsMatch(MatchReplay watched, out string trouble)
+    {
+        trouble = "";
+
+        string mine = ReplayList.Fingerprint();
+
+        if (mine.Length == 0) return true;
+
+        if (string.IsNullOrEmpty(watched.cards))
+        {
+            Debug.LogWarning("ReplayMatch: this match carries no card set, so whether it reproduces " +
+                             "depends on whether the cards have changed since. The verdict will say.");
+            return true;
+        }
+
+        if (watched.cards == mine) return true;
+
+        trouble = "this match was played with a different card set (" + watched.cards +
+                  ", this build has " + mine + "), so it cannot reproduce";
+        return false;
     }
 
     public void OnGameplaySceneLoaded()
@@ -239,10 +268,29 @@ public class ReplayMatch : MonoBehaviour
         Settle();
     }
 
+    private void StopSeats()
+    {
+        for (int i = 0; i < channels.Length; i++) channels[i] = null;
+
+        foreach (Player seat in seats)
+        {
+            if (seat == null) continue;
+
+            RemoteBrain brain = seat.GetComponent<RemoteBrain>();
+            if (brain != null) Destroy(brain);
+        }
+
+        if (gameManager != null && NetworkServer.active) gameManager.ServerStopTheClock();
+
+        Debug.Log("ReplayMatch: the playback is over, so both seats stopped taking turns.");
+    }
+
     private void Settle()
     {
         Finished = true;
         Time.timeScale = 1f;
+
+        StopSeats();
 
         string rebuilt = gameManager != null && gameManager.replay != null
             ? gameManager.replay.BodyDigestHex()
@@ -295,6 +343,10 @@ public class ReplayMatch : MonoBehaviour
     {
         if (watched == null) return false;
 
+        XSTDragonNetworkManager manager = XSTDragonNetworkManager.singleton;
+
+        if (manager != null && NetworkServer.active) return RestartInPlace(manager);
+
         pending = watched;
         pendingFrom = Time.realtimeSinceStartup;
 
@@ -303,10 +355,32 @@ public class ReplayMatch : MonoBehaviour
         Finished = false;
         arranged = false;
 
-        XSTDragonNetworkManager manager = XSTDragonNetworkManager.singleton;
+        if (manager != null && NetworkClient.active) manager.StopHost();
 
-        if (manager != null && (NetworkServer.active || NetworkClient.active)) manager.StopHost();
+        return true;
+    }
 
+    private bool RestartInPlace(XSTDragonNetworkManager manager)
+    {
+        StopAllCoroutines();
+        StopSeats();
+
+        replay = watched;
+        seats[0] = null;
+        seats[1] = null;
+
+        Active = true;
+        Finished = false;
+        arranged = false;
+        Trouble = "";
+        Verdict = "";
+        Speed = 1f;
+        Time.timeScale = 1f;
+
+        Debug.Log("ReplayMatch: restarting the playback without dropping the session.");
+
+        manager.ServerChangeScene(manager.RoomScene);
+        StartCoroutine(ReadyUpAgain(manager));
         return true;
     }
 
@@ -324,6 +398,44 @@ public class ReplayMatch : MonoBehaviour
         PracticeMode.Clear();
 
         if (!Watch(again)) Debug.LogWarning("ReplayMatch: the replay could not be restarted - " + Trouble);
+    }
+
+    private IEnumerator ReadyUpAgain(XSTDragonNetworkManager manager)
+    {
+        float deadline = Time.realtimeSinceStartup + sceneTimeout;
+        bool leftTheMatch = false;
+        bool asked = false;
+
+        while (Time.realtimeSinceStartup < deadline)
+        {
+            yield return null;
+
+            if (!NetworkServer.active) yield break;
+
+            if (Utils.IsSceneActive(manager.RoomScene))
+            {
+                leftTheMatch = true;
+
+                foreach (NetworkRoomPlayer slot in manager.roomSlots)
+                {
+                    if (slot == null || slot.readyToBegin || !slot.isOwned) continue;
+
+                    slot.CmdChangeReadyState(true);
+
+                    if (!asked)
+                    {
+                        asked = true;
+                        Debug.Log("ReplayMatch: readied the seat again to replay from the start.");
+                    }
+                }
+
+                continue;
+            }
+
+            if (leftTheMatch && Utils.IsSceneActive(manager.GameplayScene)) yield break;
+        }
+
+        Fail("the replay could not be restarted - the match scene never came back");
     }
 
     private List<MatchReplay.Move> MovesFor(int seat)
@@ -404,7 +516,16 @@ public class ReplayMatch : MonoBehaviour
         Verdict = "failed";
         Active = false;
         Finished = true;
-        Time.timeScale = arranged && gameManager != null ? 0f : 1f;
+        Time.timeScale = 1f;
+
+        StopSeats();
+
+        if (watched != null && string.IsNullOrEmpty(watched.cards))
+        {
+            Debug.LogWarning("ReplayMatch: " + reason + ". That match carries no card set, so it was " +
+                             "never promised to reproduce - this is the expected outcome, not a fault.");
+            return;
+        }
 
         Debug.LogError("ReplayMatch: " + reason + ".");
     }

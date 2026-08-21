@@ -27,6 +27,12 @@ public class PracticeButtonUI : MonoBehaviour
             return;
         }
 
+        if (ReplayMatch.Active || ReplayMatch.Finished)
+        {
+            Debug.Log("PracticeButtonUI: clearing leftover replay state before starting practice.");
+            ReplayMatch.Clear();
+        }
+
         practice.StartPractice();
     }
 }

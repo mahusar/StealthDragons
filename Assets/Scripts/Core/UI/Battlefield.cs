@@ -7,6 +7,7 @@ public class Battlefield : MonoBehaviour, IDropHandler
 
     public void OnDrop(PointerEventData eventData)
     {
+        if (ReplayMatch.Active) return;
         if (eventData == null || eventData.pointerDrag == null) return;
 
         HandCard card = eventData.pointerDrag.GetComponent<HandCard>();
@@ -18,9 +19,38 @@ public class Battlefield : MonoBehaviour, IDropHandler
         if (!player.IsOurTurn()) return;
         if (!player.deck.CanPlayCard(card.cost.text.ToInt())) return;
 
-        if (Player.gameManager != null) Player.gameManager.CmdSetHandHover(-1);
+        SpellCard spell = SpellDragged(card);
+
+        if (spell != null && spell.targeted)
+        {
+            if (Player.gameManager != null) Player.gameManager.SetHandHover(-1);
+
+            player.SpawnTargetingArrow(player.deck.hand[card.handIndex], false, card.handIndex);
+            return;
+        }
+
+        if (Player.gameManager != null) Player.gameManager.SetHandHover(-1);
+
+        if (spell != null)
+        {
+            player.deck.CmdCastSpell(card.handIndex, 0);
+            return;
+        }
 
         player.deck.CmdPlayCard(card.handIndex, SlotUnder(eventData));
+    }
+
+    public static SpellCard SpellDragged(HandCard card)
+    {
+        if (card == null) return null;
+
+        Player player = Player.localPlayer;
+        if (player == null || player.deck == null) return null;
+        if (card.handIndex < 0 || card.handIndex >= player.deck.hand.Count) return null;
+
+        CardInfo held = player.deck.hand[card.handIndex];
+
+        return held.Known ? held.data as SpellCard : null;
     }
 
     public int SlotUnder(PointerEventData eventData)

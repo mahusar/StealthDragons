@@ -38,12 +38,18 @@ public class ReplayUI : MonoBehaviour
         replayPanel.SetActive(true);
         Show(Hint());
 
+        Connect list = GetComponent<Connect>();
+        if (list != null) list.ShowReplayList();
+
         foreach (GameObject hidden in Hidden()) hidden.SetActive(false);
     }
 
     private void OnCloseClicked()
     {
         if (replayPanel != null) replayPanel.SetActive(false);
+
+        Connect list = GetComponent<Connect>();
+        if (list != null) list.HideReplayList();
 
         foreach (GameObject hidden in Hidden()) hidden.SetActive(true);
     }
@@ -61,6 +67,21 @@ public class ReplayUI : MonoBehaviour
         if (typed.Length == 0)
         {
             Show("Paste a match digest first.");
+            return;
+        }
+
+        int picked;
+        if (typed.Length <= 3 && int.TryParse(typed, out picked))
+        {
+            string fromList = ReplayList.DigestFor(picked);
+
+            if (fromList.Length == 0)
+            {
+                Show("There is no match " + picked + " in the list on the left.");
+                return;
+            }
+
+            StartCoroutine(Fetch("", fromList));
             return;
         }
 
@@ -97,8 +118,8 @@ public class ReplayUI : MonoBehaviour
         }
         else if (onion.Length == 0)
         {
-            Show("No match with that digest in " + MatchReplayStore.FolderPath() +
-                 " - add the server's onion address to fetch it instead.");
+            Show("No match with that digest here. Add the server's onion address to fetch it instead." +
+                 ((char)10) + PathLine(MatchReplayStore.FolderPath()));
             busy = false;
             yield break;
         }
@@ -187,9 +208,33 @@ public class ReplayUI : MonoBehaviour
             yield break;
         }
 
-        if (!watcher.Watch(replay)) Show("That match could not be played - " + ReplayMatch.Trouble);
+        if (!watcher.Watch(replay))
+        {
+            Show("That match could not be played - " + ReplayMatch.Trouble);
+        }
+        else if (string.IsNullOrEmpty(replay.cards))
+        {
+            Show("Playing back " + replay.playback.Count + " moves." + ((char)10) +
+                 "This one was recorded before card sets were stamped, so it may not reproduce - " +
+                 "watch the verdict at the end.");
+        }
 
         busy = false;
+    }
+
+    public void PickFromList(int number)
+    {
+        string digest = ReplayList.DigestFor(number);
+
+        if (digest.Length == 0)
+        {
+            Show("There is no match " + number + " in the list.");
+            return;
+        }
+
+        if (replayInput != null) replayInput.text = digest;
+
+        Show("Match " + number + " loaded. Press WATCH to play it.");
     }
 
     private static string Hint()
@@ -206,12 +251,25 @@ public class ReplayUI : MonoBehaviour
         {
         }
 
-        string head = "Paste a match digest, or an onion address and a digest." + line;
-        string where = "Your own matches are saved in " + folder + " - the file name is the digest.";
+        string count = found == 0
+            ? "No matches saved yet."
+            : found + " match" + (found == 1 ? "" : "es") + " saved.";
 
-        if (found == 0) return head + where;
+        return "<size=13>" + count + line +
+               "Pick a number from the list, or paste a digest.</size>" + line + PathLine(folder);
+    }
 
-        return head + found + " match" + (found == 1 ? "" : "es") + " saved on this machine." + line + where;
+    private static string PathLine(string folder)
+    {
+        if (string.IsNullOrEmpty(folder)) return "";
+
+        string shown = folder.Replace('\\', '/');
+        string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile).Replace('\\', '/');
+
+        if (home.Length > 0 && shown.StartsWith(home, StringComparison.OrdinalIgnoreCase))
+            shown = "~" + shown.Substring(home.Length);
+
+        return "<size=13>" + shown + "</size>";
     }
 
     private GameObject[] Hidden()

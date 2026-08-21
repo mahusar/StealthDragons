@@ -82,6 +82,23 @@ public class ReplayChannel : IBotChannel
         if (move.verb == BotAction.Play)
             return BotAction.Play + " " + move.handIndex.ToString(CultureInfo.InvariantCulture);
 
+        if (move.verb == BotAction.Cast)
+        {
+            string cast = BotAction.Cast + " " + move.handIndex.ToString(CultureInfo.InvariantCulture);
+
+            if (string.IsNullOrEmpty(move.target)) return cast;
+
+            uint aimedAt = Resolve(move.target);
+
+            if (aimedAt == 0)
+            {
+                Diverge("the replay casts at a creature that is not on this board (" + move.target + ")");
+                return BotAction.End;
+            }
+
+            return cast + " " + aimedAt.ToString(CultureInfo.InvariantCulture);
+        }
+
         if (move.verb == BotAction.Attack)
         {
             uint attacker = Resolve(move.attacker);

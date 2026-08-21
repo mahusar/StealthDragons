@@ -28,6 +28,7 @@ public class HandCardPointer : MonoBehaviour,
 
     public void OnPointerEnter(PointerEventData eventData)
     {
+        if (ReplayMatch.Active) return;
         if (!canHover || card == null) return;
 
         hovering = true;
@@ -35,7 +36,7 @@ public class HandCardPointer : MonoBehaviour,
         Lift(RaisedScale, RaisedHeight);
         DrawOnTop(true);
 
-        if (Player.gameManager != null) Player.gameManager.CmdSetHandHover(card.handIndex);
+        if (Player.gameManager != null) Player.gameManager.SetHandHover(card.handIndex);
     }
 
     public void OnPointerExit(PointerEventData eventData)
@@ -47,11 +48,12 @@ public class HandCardPointer : MonoBehaviour,
         Lift(RestingScale, 0f);
         DrawOnTop(false);
 
-        if (Player.gameManager != null) Player.gameManager.CmdSetHandHover(-1);
+        if (Player.gameManager != null) Player.gameManager.SetHandHover(-1);
     }
 
     public void OnBeginDrag(PointerEventData eventData)
     {
+        if (ReplayMatch.Active) return;
         if (!canDrag || EmptyCard == null) return;
 
         returnTo = transform.parent;
@@ -64,6 +66,8 @@ public class HandCardPointer : MonoBehaviour,
         transform.SetParent(returnTo.parent, false);
 
         if (canvasGroup != null) canvasGroup.blocksRaycasts = false;
+
+        AimHighlight.Show(Battlefield.SpellDragged(card), Player.localPlayer, true);
     }
 
     public void OnDrag(PointerEventData eventData)
@@ -84,6 +88,8 @@ public class HandCardPointer : MonoBehaviour,
         if (!canDrag) return;
 
         if (canvasGroup != null) canvasGroup.blocksRaycasts = true;
+
+        AimHighlight.Clear();
 
         DrawOnTop(false);
 
@@ -122,6 +128,14 @@ public class HandCardPointer : MonoBehaviour,
     void LateUpdate()
     {
         if (!hovering || card == null) return;
+
+        if (ReplayMatch.Active)
+        {
+            hovering = false;
+            Lift(RestingScale, 0f);
+            DrawOnTop(false);
+            return;
+        }
 
         if (!canHover)
         {

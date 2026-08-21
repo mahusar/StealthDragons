@@ -5,6 +5,7 @@ public partial class SpellCard : CardDefinition
 {
     [Header("Propeties")]
     public bool targeted = false;
+    public Target affects = Target.ENEMIES;
     public int healthChange = 0;
     public int strengthChange = 0;
     public int cardDraw = 0;

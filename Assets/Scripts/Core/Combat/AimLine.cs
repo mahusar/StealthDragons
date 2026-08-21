@@ -29,7 +29,7 @@ public class AimLine : MonoBehaviour
         get { return aiming; }
     }
 
-    public void DrawLine(Entity entity, CardInfo card, Vector2 startPosition, bool IsAbility)
+    public void DrawLine(Entity entity, CardInfo card, Vector2 startPosition, bool IsAbility, int handIndex = -1)
     {
         if (headPrefab == null)
         {
@@ -55,6 +55,7 @@ public class AimLine : MonoBehaviour
         }
 
         head.card = new CardInfo(card.data);
+        head.handIndex = handIndex;
         aiming = true;
     }
 

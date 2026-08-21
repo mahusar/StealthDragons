@@ -297,6 +297,9 @@ public class XSTDragonNetworkManager : NetworkRoomManager
     {
         intentionalLeave = true;
 
+        ReplayMatch.Clear();
+        PracticeMode.Clear();
+
         if (NetworkServer.active && NetworkClient.isConnected)
         {
             SendToMatchmaker($"REMOVE_ROOM|{networkAddress}|{networkPort}");

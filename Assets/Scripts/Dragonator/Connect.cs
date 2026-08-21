@@ -19,7 +19,7 @@ public class Connect : MonoBehaviour
     [SerializeField] private Button joinButton;
     [SerializeField] private TMP_Text statusText;
     [SerializeField] private TMP_Text playersText;
-    private const string gameVersion = "0.6";  // GAME VERSION
+    private const string gameVersion = "0.7";  // GAME VERSION
     [SerializeField] private TMP_Text versionText;
     [SerializeField] private TMP_Text versionNumberText;
     [SerializeField] private TMP_Text serverInfoText;
@@ -725,6 +725,129 @@ public class Connect : MonoBehaviour
     private void SetServersText(string text)
     {
         if (serversText != null) serversText.text = text;
+    }
+
+    private string savedServersText;
+    private bool serversPanelWasOpen;
+
+    public void ShowReplayList()
+    {
+        if (savedServersText == null)
+        {
+            savedServersText = serversText != null ? serversText.text : "";
+            serversPanelWasOpen = serversPanel != null && serversPanel.activeSelf;
+            savedHeadline = Headline() != null ? Headline().text : "";
+        }
+
+        if (serversPanel != null) serversPanel.SetActive(true);
+        if (Headline() != null) Headline().text = "matches";
+
+        MakeListUsable();
+
+        listed = ReplayList.Newest();
+        SetServersText(ReplayList.Describe(listed, 0));
+    }
+
+    public void HideReplayList()
+    {
+        if (savedServersText == null) return;
+
+        SetServersText(savedServersText);
+
+        if (Headline() != null) Headline().text = savedHeadline;
+        if (serversPanel != null) serversPanel.SetActive(serversPanelWasOpen);
+
+        savedServersText = null;
+    }
+
+    private System.Collections.Generic.List<ReplayList.Entry> listed;
+
+    private void Relight(int row)
+    {
+        if (listed == null || savedServersText == null) return;
+
+        SetServersText(ReplayList.Describe(listed, row));
+    }
+
+    private string savedHeadline = "";
+    private TMP_Text headline;
+
+    private TMP_Text Headline()
+    {
+        if (headline != null) return headline;
+        if (serversPanel == null) return null;
+
+        foreach (TMP_Text found in serversPanel.GetComponentsInChildren<TMP_Text>(true))
+        {
+            if (found.transform.parent == null) continue;
+            if (!found.transform.parent.name.Contains("Header")) continue;
+
+            headline = found;
+            break;
+        }
+
+        return headline;
+    }
+
+    private void MakeListUsable()
+    {
+        if (serversText == null) return;
+
+        serversText.raycastTarget = true;
+
+        ReplayPick pick = serversText.GetComponent<ReplayPick>();
+        if (pick == null) pick = serversText.gameObject.AddComponent<ReplayPick>();
+
+        ReplayUI viewer = GetComponent<ReplayUI>();
+        pick.picked = viewer != null ? new System.Action<int>(viewer.PickFromList) : null;
+        pick.hovered = Relight;
+
+        AddScrollbar();
+    }
+
+    private void AddScrollbar()
+    {
+        ScrollRect scroll = serversPanel != null ? serversPanel.GetComponentInChildren<ScrollRect>(true) : null;
+        if (scroll == null || scroll.verticalScrollbar != null) return;
+
+        GameObject bar = new GameObject("ServersScrollbar", typeof(RectTransform));
+        RectTransform barRect = bar.GetComponent<RectTransform>();
+        barRect.SetParent(scroll.transform, false);
+        barRect.anchorMin = new Vector2(1f, 0f);
+        barRect.anchorMax = Vector2.one;
+        barRect.pivot = new Vector2(1f, 1f);
+        barRect.offsetMin = new Vector2(-10f, 0f);
+        barRect.offsetMax = Vector2.zero;
+
+        Image track = bar.AddComponent<Image>();
+        track.color = new Color(1f, 1f, 1f, 0.08f);
+
+        GameObject area = new GameObject("Sliding Area", typeof(RectTransform));
+        RectTransform areaRect = area.GetComponent<RectTransform>();
+        areaRect.SetParent(barRect, false);
+        areaRect.anchorMin = Vector2.zero;
+        areaRect.anchorMax = Vector2.one;
+        areaRect.offsetMin = Vector2.zero;
+        areaRect.offsetMax = Vector2.zero;
+
+        GameObject grip = new GameObject("Handle", typeof(RectTransform));
+        RectTransform gripRect = grip.GetComponent<RectTransform>();
+        gripRect.SetParent(areaRect, false);
+        gripRect.offsetMin = Vector2.zero;
+        gripRect.offsetMax = Vector2.zero;
+
+        Image gripImage = grip.AddComponent<Image>();
+        gripImage.color = new Color(1f, 1f, 1f, 0.45f);
+
+        Scrollbar slider = bar.AddComponent<Scrollbar>();
+        slider.direction = Scrollbar.Direction.BottomToTop;
+        slider.handleRect = gripRect;
+        slider.targetGraphic = gripImage;
+
+        scroll.verticalScrollbar = slider;
+        scroll.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.AutoHideAndExpandViewport;
+
+        Debug.Log("Connect: built a scrollbar for the side list.");
     }
 
     private IEnumerator DiscoverServers(string address)

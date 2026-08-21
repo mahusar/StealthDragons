@@ -102,9 +102,18 @@ public static class BotView
                     Bool(json, "deathrattle", Deathrattle.On(creature), false);
                     Number(json, "deathrattleDamage", Deathrattle.On(creature) ? creature.deathrattleDamage : 0, false);
                 }
+                else if (data is SpellCard sorcery)
+                {
+                    Text(json, "kind", "spell", false);
+                    Bool(json, "targeted", sorcery.targeted, false);
+                    Text(json, "affects", sorcery.affects.ToString().ToLowerInvariant(), false);
+                    Number(json, "healthChange", sorcery.healthChange, false);
+                    Number(json, "strengthChange", sorcery.strengthChange, false);
+                    Number(json, "cardDraw", sorcery.cardDraw, false);
+                }
                 else
                 {
-                    Text(json, "kind", data is SpellCard ? "spell" : "other", false);
+                    Text(json, "kind", "other", false);
                 }
 
                 json.Append('}');

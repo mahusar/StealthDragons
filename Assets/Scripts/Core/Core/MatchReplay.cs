@@ -24,6 +24,7 @@ public class MatchReplay
     public string match = "";
     public string seed = "";
     public string mix = "";
+    public string cards = "";
     public string result = "";
     public string reason = "";
 
@@ -119,6 +120,19 @@ public class MatchReplay
         Moves++;
     }
 
+    public void RecordCast(uint playerNetId, int handIndex, string cardId, uint targetNetId)
+    {
+        if (Sealed) return;
+
+        SeatOf(playerNetId);
+
+        string target = targetNetId == 0 ? "" : StableOf(targetNetId);
+        if (targetNetId != 0 && target.Length == 0) target = "?";
+
+        lines.Add("m=cast " + handIndex + " " + Clean(cardId) + (target.Length == 0 ? "" : " " + target));
+        Moves++;
+    }
+
     public void RecordEnd(uint playerNetId)
     {
         if (Sealed) return;
@@ -148,6 +162,9 @@ public class MatchReplay
         sb.Append("match=").Append(Clean(match)).Append('\n');
         sb.Append("seed=").Append(Clean(seed)).Append('\n');
         sb.Append("mix=").Append(Clean(mix)).Append('\n');
+        if (cards.Length > 0)
+            sb.Append("cards=").Append(Clean(cards)).Append('\n');
+
 
         foreach (Seat seat in seats)
             sb.Append("seat=").Append(seat.index)
@@ -227,6 +244,7 @@ public class MatchReplay
                 case "match": replay.match = value; break;
                 case "seed": replay.seed = value; break;
                 case "mix": replay.mix = value; break;
+                case "cards": replay.cards = value; break;
                 case "result": replay.result = value; break;
                 case "reason": replay.reason = value; break;
 
@@ -325,6 +343,14 @@ public class MatchReplay
             if (bits.Length != 3) return false;
             move.attacker = bits[1];
             move.target = bits[2];
+            return true;
+        }
+
+        if (move.verb == "cast")
+        {
+            if (bits.Length < 3 || !int.TryParse(bits[1], out move.handIndex)) return false;
+            move.cardId = bits[2];
+            if (bits.Length > 3) move.target = bits[3];
             return true;
         }
 

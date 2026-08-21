@@ -80,6 +80,13 @@ public class BoardCard : Entity
         if (value) wasAimed = true;
     }
 
+    public void ShowRefused(string word, Color tint)
+    {
+        if (!NetworkClient.active || string.IsNullOrEmpty(word)) return;
+
+        CardHitEffects.ShowWord(healthText, transform, word, tint, 0f, -CardHitEffects.sideOffset);
+    }
+
     public void ShowDeathrattle()
     {
         if (!NetworkClient.active) return;

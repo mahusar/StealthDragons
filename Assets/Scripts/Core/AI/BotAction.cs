@@ -6,6 +6,7 @@ using UnityEngine;
 public enum BotActionResult
 {
     Played,
+    Cast,
     Attacked,
     Ended,
     Refused,
@@ -17,6 +18,7 @@ public static class BotAction
     public const string Play = "play";
     public const string Attack = "attack";
     public const string End = "end";
+    public const string Cast = "cast";
 
     public static BotActionResult Apply(string line, Player self, GameManager gameManager, out string detail)
     {
@@ -82,6 +84,34 @@ public static class BotAction
             return ApplyAttack(attacker, target, self, out detail);
         }
 
+        if (verb == Cast)
+        {
+            if (parts.Length < 2 || parts.Length > 3)
+            {
+                detail = "cast needs a hand index and an optional target";
+                return BotActionResult.Malformed;
+            }
+
+            int index;
+            if (!int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out index))
+            {
+                detail = "cast index is not a number";
+                return BotActionResult.Malformed;
+            }
+
+            uint target = 0;
+            if (parts.Length == 3 &&
+                !uint.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out target))
+            {
+                detail = "cast target is not a number";
+                return BotActionResult.Malformed;
+            }
+
+            if (!Seated(self, gameManager, out detail)) return BotActionResult.Refused;
+
+            return ApplyCast(index, target, self, out detail);
+        }
+
         detail = "unknown action " + Trim(verb);
         return BotActionResult.Malformed;
     }
@@ -113,6 +143,26 @@ public static class BotAction
         if (self.deck.hand.Count < before) return BotActionResult.Played;
 
         detail = "the server refused play " + index;
+        return BotActionResult.Refused;
+    }
+
+    private static BotActionResult ApplyCast(int index, uint targetNetId, Player self, out string detail)
+    {
+        detail = "";
+
+        if (self.deck == null)
+        {
+            detail = "no deck";
+            return BotActionResult.Refused;
+        }
+
+        int before = self.deck.hand.Count;
+
+        self.deck.ServerCastSpell(index, targetNetId);
+
+        if (self.deck.hand.Count < before) return BotActionResult.Cast;
+
+        detail = "the server refused cast " + index;
         return BotActionResult.Refused;
     }
 

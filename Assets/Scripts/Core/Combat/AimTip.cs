@@ -13,12 +13,18 @@ public class AimTip : MonoBehaviour
 
     [HideInInspector] public CardInfo card;
 
+    [HideInInspector] public int handIndex = -1;
+
     private Entity aimed;
 
     public void FindTargets(Entity caster, Vector2 mousePos, bool IsAbility)
     {
         Entity target = Under(mousePos);
-        bool reachable = Reachable(target) && (!Walled() || Guards(target));
+        SpellCard spell = Spell();
+
+        bool reachable = spell != null
+            ? Castable(spell, target)
+            : Reachable(target) && (!Walled() || Guards(target));
 
         Aim(reachable ? target : null);
 
@@ -30,12 +36,45 @@ public class AimTip : MonoBehaviour
 
         ShowHead(targetHead);
 
-        if (!Input.GetMouseButtonDown(0) || IsAbility) return;
+        if (!Input.GetMouseButtonDown(0)) return;
+
+        if (spell != null)
+        {
+            CastAt(target);
+            return;
+        }
+
+        if (IsAbility) return;
 
         CreatureCard creature = card.data as CreatureCard;
         if (creature == null) return;
 
         creature.Attack(caster, target);
+    }
+
+    private SpellCard Spell()
+    {
+        return card.Known ? card.data as SpellCard : null;
+    }
+
+    private static bool Castable(SpellCard spell, Entity target)
+    {
+        BoardCard creature = target as BoardCard;
+        if (creature == null || creature.isTargeting) return false;
+
+        string trouble;
+        return Spellbook.Legal(spell, Player.localPlayer, creature, out trouble);
+    }
+
+    private void CastAt(Entity target)
+    {
+        BoardCard creature = target as BoardCard;
+        Player me = Player.localPlayer;
+
+        if (creature == null || me == null || me.deck == null || handIndex < 0) return;
+
+        me.deck.CmdCastSpell(handIndex, creature.netId);
+        me.DestroyTargetingArrow();
     }
 
     private void Aim(Entity target)

@@ -421,6 +421,68 @@ public class Deck : NetworkBehaviour
         if (isServer) RpcPlayCard(boardCard, slot);
     }
 
+    [Command]
+    public void CmdCastSpell(int index, uint targetNetId)
+    {
+        ServerCastSpell(index, targetNetId);
+    }
+
+    [Server]
+    public void ServerCastSpell(int index, uint targetNetId)
+    {
+        GameManager gm = FindFirstObjectByType<GameManager>();
+        if (gm == null || !gm.IsTurnOf(player))
+        {
+            Debug.LogWarning($"CmdCastSpell rejected: not {player?.username}'s turn.");
+            return;
+        }
+
+        if (index < 0 || index >= hand.Count)
+        {
+            Debug.LogWarning($"CmdCastSpell rejected: index {index} out of range (hand {hand.Count}).");
+            return;
+        }
+
+        CardInfo card = hand[index];
+        if (!(card.data is SpellCard spell))
+        {
+            Debug.LogWarning($"CmdCastSpell rejected: card at {index} is not a spell.");
+            return;
+        }
+
+        int manaCost = card.data.cost;
+        if (!CanPlayCard(manaCost))
+        {
+            Debug.LogWarning($"CmdCastSpell rejected: {player.username} has {player.mana} mana, needs {manaCost}.");
+            return;
+        }
+
+        BoardCard chosen = ServerFindBoardCard(targetNetId);
+
+        string trouble;
+        if (!Spellbook.Resolve(spell, player, chosen, out trouble))
+        {
+            Debug.LogWarning($"CmdCastSpell rejected: {trouble}.");
+            return;
+        }
+
+        player.combat.ServerChangeMana(-manaCost);
+
+        hand.RemoveAt(index);
+        graveyard.Add(card);
+
+        gm.ReplayRecordCast(player, index, card.cardID, targetNetId);
+    }
+
+    [Server]
+    private BoardCard ServerFindBoardCard(uint netId)
+    {
+        if (netId == 0) return null;
+        if (!NetworkServer.spawned.TryGetValue(netId, out NetworkIdentity identity)) return null;
+
+        return identity != null ? identity.GetComponent<BoardCard>() : null;
+    }
+
     [ClientRpc]
     public void RpcPlayCard(GameObject boardCard, int slot)
     {

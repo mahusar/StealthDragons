@@ -232,7 +232,7 @@ public class GameManager : NetworkBehaviour
     }
 
     [Server]
-    private void ServerStopTheClock()
+    public void ServerStopTheClock()
     {
         currentTurnNetId = 0;
         turnDeadline = 0d;
@@ -336,11 +336,25 @@ public class GameManager : NetworkBehaviour
     }
 
     [Server]
+    public void ReplayRecordCast(Player owner, int handIndex, string cardId, uint targetNetId)
+    {
+        if (owner == null) return;
+
+        ServerReplay().RecordCast(owner.netId, handIndex, cardId, targetNetId);
+    }
+
+    [Server]
     public void ReplayRecordEnd(Player owner)
     {
         if (owner == null) return;
 
         ServerReplay().RecordEnd(owner.netId);
+    }
+
+    [Server]
+    private string ServerCardFingerprint()
+    {
+        return ReplayList.Fingerprint();
     }
 
     [Server]
@@ -398,6 +412,7 @@ public class GameManager : NetworkBehaviour
             log.match = shuffleCommitment;
             log.seed = shuffleReveal;
             log.mix = shuffleContributions;
+            log.cards = ServerCardFingerprint();
             log.result = receipt.result;
             log.reason = reason;
 
@@ -915,6 +930,13 @@ public class GameManager : NetworkBehaviour
         }
 
         if (turnButtonButton != null) turnButtonButton.interactable = ourTurn;
+    }
+
+    public void SetHandHover(int index)
+    {
+        if (!NetworkClient.active || !NetworkClient.ready) return;
+
+        CmdSetHandHover(index);
     }
 
     [Command(requiresAuthority = false)]

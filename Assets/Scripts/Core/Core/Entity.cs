@@ -50,7 +50,7 @@ public abstract partial class Entity : NetworkBehaviour
         return Ours() && (waitTurn > 0 || hasAttackedThisTurn);
     }
 
-    public virtual void SpawnTargetingArrow(CardInfo card, bool IsAbility = false)
+    public virtual void SpawnTargetingArrow(CardInfo card, bool IsAbility = false, int handIndex = -1)
     {
         if (arrow == null)
         {
@@ -77,7 +77,7 @@ public abstract partial class Entity : NetworkBehaviour
 
         Cursor.visible = false;
 
-        line.DrawLine(this, card, from, IsAbility);
+        line.DrawLine(this, card, from, IsAbility, handIndex);
     }
 
     public void DestroyTargetingArrow()

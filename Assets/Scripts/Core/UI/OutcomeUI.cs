@@ -86,8 +86,10 @@ public class OutcomeUI : MonoBehaviour
 
     public void ShowFairness()
     {
-        if (resetButton != null && resetButton.gameObject.activeSelf != Practicing())
-            resetButton.gameObject.SetActive(Practicing());
+        bool offerReset = Practicing() && !ReplayMatch.Active;
+
+        if (resetButton != null && resetButton.gameObject.activeSelf != offerReset)
+            resetButton.gameObject.SetActive(offerReset);
 
         if (fairnessText == null) return;
 
@@ -139,6 +141,12 @@ public class OutcomeUI : MonoBehaviour
 
     private void OnResetClicked()
     {
+        if (ReplayMatch.Active)
+        {
+            Debug.Log("[OutcomeUI] This is a replay, so there is nothing to restart here.");
+            return;
+        }
+
         PracticeMode practice = PracticeMode.Instance;
 
         if (practice == null)
