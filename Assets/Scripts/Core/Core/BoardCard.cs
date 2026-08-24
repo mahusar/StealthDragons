@@ -9,6 +9,8 @@ public class BoardCard : Entity
 
     [HideInInspector] public bool deathrattleSpent;
 
+    [HideInInspector] public bool battlecrySpent;
+
     [Header("Card Properties")]
     public Image image;
     public Text cardName;

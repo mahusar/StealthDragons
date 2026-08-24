@@ -10,7 +10,10 @@ public class XSTDragonNetworkUI : MonoBehaviour
     void Awake()
     {
         if (usernameInput != null)
+        {
             usernameInput.onEndEdit.AddListener(OnUsernameEntered);
+            usernameInput.onValueChanged.AddListener(OnUsernameTyped);
+        }
     }
 
     void Start()
@@ -18,6 +21,12 @@ public class XSTDragonNetworkUI : MonoBehaviour
         username = PlayerName.Resolve();
         if (usernameInput != null)
             usernameInput.text = username;
+    }
+
+    void OnUsernameTyped(string input)
+    {
+        username = PlayerName.Sanitize(input);
+        PlayerName.Remember(username);
     }
 
     void OnUsernameEntered(string input)

@@ -1,5 +1,5 @@
 StealthDragons is a multiplayer PvP card game that runs through the Tor network and integrates the Stealth (XST) blockchain.
-The cards are NFT node artworks, drawn randomly, and every player has the same number of cards with identical statistics to keep the battles fair.
+The cards are NFT node artworks. Each player builds their own deck from a shared pool, so no two decks need be alike, and the battles are kept fair by proof rather than by everyone playing the same cards.
 
 ### TOR network 
 - All game traffic is routed through the **Tor network** via a hidden service (.onion address) - no central server, fully encrypted PvP
@@ -16,8 +16,15 @@ The cards are NFT node artworks, drawn randomly, and every player has the same n
 - Players connect via .onion address directly in the game client
 - Server player count is tracked live and shown before joining
 
+### Deckbuilding
+- 47 cards in the pool. A deck is 40 cards with at most 2 copies of any one card, and both seats build under the same two rules
+- Build it in the DECK panel on the menu. Point at a row and the card itself is shown
+- Creatures carry keywords such as charge, taunt, shield, lifesteal and deathrattle, some carry a battlecry, and some reward a tribe
+- A bot brings its own decklist too, so an add-on bot's deck is on the record like any other seat's
+
 ### Provably fair matches
 - The server commits to the shuffle before a single card is dealt, and every player mixes in their own seed
+- Each seat's decklist is committed before a single card is dealt and revealed at the end, so which deck won is something a third party can check
 - The seed is revealed at the end, so each client recomputes the whole deal and checks its own hand and the opponent's
 - Every completed match produces a receipt that both players sign, with keys the server never holds, so a result cannot be invented or altered afterwards
 - A client that cannot verify the deal refuses to sign, so a signed receipt means both sides checked it and agreed

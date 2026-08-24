@@ -181,6 +181,94 @@ public static class LocalShuffleProof
         return true;
     }
 
+    public static void VerifyDecks(string commitment, string reveal, string contributions,
+                                   string deals, string commitments, string reveals)
+    {
+        Dictionary<uint, string> promised = ParsePairs(commitments);
+        Dictionary<uint, string> attested = ParsePairs(deals);
+
+        if (promised == null || attested == null)
+        {
+            Fail("the published deck commitments could not be read");
+            return;
+        }
+
+        byte[] serverSeed = CardShuffle.FromHex(reveal);
+        byte[] matchSeed = serverSeed == null ? null : MatchSeedFrom(serverSeed, contributions);
+
+        if (matchSeed == null)
+        {
+            Fail("the match seed could not be rebuilt, so no deck can be checked");
+            return;
+        }
+
+        int checkedDecks = 0;
+
+        foreach (string part in (reveals ?? "").Split(';'))
+        {
+            if (part.Length == 0) continue;
+
+            string[] bits = part.Split(new[] { ':' }, 3);
+            if (bits.Length != 3) { Fail("a published deck reveal could not be read"); return; }
+
+            uint netId;
+            if (!uint.TryParse(bits[0], out netId)) { Fail("a deck reveal names no seat"); return; }
+
+            string nonce = bits[1];
+            string wire = bits[2];
+
+            string promise;
+            if (!promised.TryGetValue(netId, out promise))
+            {
+                Unverified++;
+                Debug.LogWarning("LocalShuffleProof: seat " + netId + " revealed a deck it never committed to.");
+                continue;
+            }
+
+            if (!DeckSecret.Holds(promise, nonce, wire))
+            {
+                Fail("seat " + netId + " revealed a deck that does not match the deck it committed to");
+                return;
+            }
+
+            if (netId == myNetId) { checkedDecks++; continue; }
+
+            List<CardInfo> composition;
+            string trouble;
+
+            if (!Decklist.Parse(wire, out composition, out trouble))
+            {
+                Fail("seat " + netId + " revealed a deck that is not legal (" + trouble + ")");
+                return;
+            }
+
+            string fingerprint;
+            if (!attested.TryGetValue(netId, out fingerprint))
+            {
+                Unverified++;
+                Debug.LogWarning("LocalShuffleProof: seat " + netId + " attested no dealt order, so its deck is unchecked.");
+                continue;
+            }
+
+            if (!DealMatches(matchSeed, netId, composition, fingerprint))
+            {
+                Fail("seat " + netId + " was not dealt from the deck it committed to");
+                return;
+            }
+
+            checkedDecks++;
+        }
+
+        if (checkedDecks == 0)
+        {
+            Debug.LogWarning("LocalShuffleProof: no deck could be checked against its commitment.");
+            return;
+        }
+
+        Debug.Log("LocalShuffleProof: every revealed deck matches its commitment, and every hand was dealt from it (" +
+                  checkedDecks + " deck(s) checked).");
+    }
+
     private static bool DealMatches(byte[] matchSeed, uint netId, List<CardInfo> composition, string fingerprint)
     {
         if (composition == null || composition.Count == 0) return false;

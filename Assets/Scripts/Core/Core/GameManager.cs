@@ -54,6 +54,8 @@ public class GameManager : NetworkBehaviour
     [SyncVar, HideInInspector] public string shuffleContributions = "";
     [SyncVar, HideInInspector] public string shuffleDeals = "";
     [SyncVar(hook = nameof(OnShuffleRevealed)), HideInInspector] public string shuffleReveal = "";
+    [SyncVar, HideInInspector] public string deckCommitments = "";
+    [SyncVar(hook = nameof(OnDecksRevealed)), HideInInspector] public string deckReveals = "";
     [SyncVar(hook = nameof(OnReceiptSignatures)), HideInInspector] public string matchReceiptSignatures = "";
     [SyncVar(hook = nameof(OnMatchReceipt)), HideInInspector] public string matchReceipt = "";
 
@@ -76,6 +78,8 @@ public class GameManager : NetworkBehaviour
         shuffleContributions = "";
         shuffleDeals = "";
         shuffleReveal = "";
+        deckCommitments = "";
+        deckReveals = "";
         matchReceipt = "";
         matchReceiptSignatures = "";
         serverSignatures.Clear();
@@ -98,6 +102,33 @@ public class GameManager : NetworkBehaviour
     public void ServerPublishDealtOrders()
     {
         shuffleDeals = MatchFairness.DealtOrdersText;
+    }
+
+    [Server]
+    public void ServerRevealDecks()
+    {
+        if (!string.IsNullOrEmpty(deckReveals)) return;
+
+        foreach (Player entry in FindObjectsByType<Player>(FindObjectsSortMode.None))
+        {
+            if (entry == null || entry.deck == null) continue;
+
+            MatchFairness.RevealDeck(entry.netId, entry.deck.EffectiveDecklist());
+        }
+
+        deckReveals = MatchFairness.DeckRevealsText;
+
+        Debug.Log("GameManager: revealed every seat's deck now the match is over.");
+    }
+
+    private void OnDecksRevealed(string oldValue, string newValue)
+    {
+        if (string.IsNullOrEmpty(newValue)) return;
+        if (ReplayMatch.Active) return;
+
+        LocalShuffleProof.VerifyDecks(shuffleCommitment, shuffleReveal, shuffleContributions,
+                                      shuffleDeals, deckCommitments, newValue);
+        RefreshOutcomeUI();
     }
 
     private void OnShuffleRevealed(string oldValue, string newValue)
@@ -218,6 +249,7 @@ public class GameManager : NetworkBehaviour
         if (winner != null) RecordGameOutcome(winner, true);
 
         ServerRevealShuffle();
+        ServerRevealDecks();
 
         try
         {
@@ -289,6 +321,8 @@ public class GameManager : NetworkBehaviour
             return;
         }
 
+        ServerRecordDecks(receipt);
+
         receipt.replay = ServerWriteReplay(receipt, reason);
 
         serverSignatures.Clear();
@@ -341,6 +375,14 @@ public class GameManager : NetworkBehaviour
         if (owner == null) return;
 
         ServerReplay().RecordCast(owner.netId, handIndex, cardId, targetNetId);
+    }
+
+    [Server]
+    public void ReplayRecordPower(Player owner, uint targetNetId)
+    {
+        if (owner == null) return;
+
+        ServerReplay().RecordPower(owner.netId, targetNetId);
     }
 
     [Server]
@@ -397,6 +439,37 @@ public class GameManager : NetworkBehaviour
     }
 
     [Server]
+    private void ServerRecordDecks(MatchReceipt receipt)
+    {
+        receipt.decks.Clear();
+
+        foreach (MatchReceipt.Seat seat in receipt.seats)
+        {
+            string commitment = MatchFairness.DeckCommitmentOf(seat.netId);
+            if (string.IsNullOrEmpty(commitment)) continue;
+
+            List<CardInfo> composition;
+            string trouble;
+
+            string print = Decklist.Parse(MatchFairness.DeckRevealOf(seat.netId), out composition, out trouble)
+                ? CardFingerprint.Of(composition)
+                : "";
+
+            receipt.decks.Add(new MatchReceipt.Deck
+            {
+                netId = seat.netId,
+                cards = print,
+                commitment = commitment
+            });
+        }
+
+        receipt.decks.Sort(delegate (MatchReceipt.Deck left, MatchReceipt.Deck right)
+        {
+            return left.netId.CompareTo(right.netId);
+        });
+    }
+
+    [Server]
     private string ServerWriteReplay(MatchReceipt receipt, string reason)
     {
         MatchReplay log = replay;
@@ -419,13 +492,28 @@ public class GameManager : NetworkBehaviour
             log.seats.Clear();
 
             foreach (MatchReceipt.Seat seat in receipt.seats)
+            {
+                string list = MatchFairness.DeckRevealOf(seat.netId);
+
+                List<CardInfo> composition;
+                string trouble;
+
+                string print = Decklist.Parse(list, out composition, out trouble)
+                    ? CardFingerprint.Of(composition)
+                    : "";
+
                 log.seats.Add(new MatchReplay.Seat
                 {
                     index = log.SeatOf(seat.netId),
                     netId = seat.netId,
                     username = seat.username,
-                    publicKeyHex = seat.publicKeyHex
+                    publicKeyHex = seat.publicKeyHex,
+                    cards = print,
+                    commitment = MatchFairness.DeckCommitmentOf(seat.netId),
+                    nonce = MatchFairness.DeckNonceOf(seat.netId),
+                    decklist = list
                 });
+            }
 
             log.seats.Sort(delegate (MatchReplay.Seat left, MatchReplay.Seat right)
             {
@@ -759,6 +847,8 @@ public class GameManager : NetworkBehaviour
         if (!MatchFairness.AllRevealed)
             Debug.LogWarning("GameManager: not every committed seed was revealed in time - dealing without the missing ones.");
 
+        deckCommitments = MatchFairness.DeckCommitmentsText;
+
         ServerDealEveryHand();
         ServerBeginTurnFor(first);
         RpcStartGame(firstPlayerIdentity);
@@ -791,6 +881,8 @@ public class GameManager : NetworkBehaviour
             player.currentMax++;
             player.mana = player.currentMax;
         }
+
+        player.heroPowerUsed = false;
 
         foreach (BoardCard card in FindObjectsByType<BoardCard>(FindObjectsSortMode.None))
             if (card.owner == player) card.ServerBeginTurn();

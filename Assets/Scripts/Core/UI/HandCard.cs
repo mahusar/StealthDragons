@@ -112,8 +112,7 @@ public class HandCard : MonoBehaviour
             return;
         }
 
-        creatureType.text = Keyword.TypeOf(creature);
-        creatureType.color = plainColor;
+        creatureType.text = "";
     }
 
     private void ShowDeathrattle(CreatureCard creature)

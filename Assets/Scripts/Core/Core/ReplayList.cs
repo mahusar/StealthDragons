@@ -17,6 +17,8 @@ public static class ReplayList
         public string winner;
         public string loser;
         public string cards;
+        public Dictionary<string, string> decks;
+        public bool decksProven;
     }
 
     public enum Standing
@@ -131,6 +133,7 @@ public static class ReplayList
 
             sb.Append("      <size=85%>").Append(entry.digest.Substring(0, 16)).Append("...</size>")
               .Append(Tag(StandingOf(entry, mine)))
+              .Append(entry.decksProven ? " <color=#7FD98A><size=85%>decks proven</size></color>" : "")
               .Append(lit ? "</mark>" : "").Append("</link>\n\n");
         }
 
@@ -163,10 +166,135 @@ public static class ReplayList
 
     public static Standing StandingOf(Entry entry, string mine)
     {
+        if (entry.decks != null && entry.decks.Count > 0)
+        {
+            foreach (string wire in entry.decks.Keys)
+            {
+                List<CardInfo> composition;
+                string unusable;
+
+                if (!Decklist.Parse(wire, out composition, out unusable)) return Standing.Outdated;
+
+                if (CardFingerprint.Of(composition) != entry.decks[wire]) return Standing.Outdated;
+            }
+
+            return Standing.Plays;
+        }
+
         if (string.IsNullOrEmpty(entry.cards)) return Standing.Unverified;
         if (mine.Length == 0) return Standing.Unverified;
 
         return entry.cards == mine ? Standing.Plays : Standing.Outdated;
+    }
+
+    public const string OutdatedFolder = "replays-outdated";
+
+    public static string OutdatedPath()
+    {
+        return Path.Combine(Application.persistentDataPath, OutdatedFolder);
+    }
+
+    public static int OutdatedCount()
+    {
+        List<string> stale;
+
+        return Stale(out stale) ? stale.Count : 0;
+    }
+
+    public static int Prune(out string trouble)
+    {
+        trouble = "";
+
+        List<string> stale;
+        if (!Stale(out stale)) return 0;
+        if (stale.Count == 0) return 0;
+
+        string into = OutdatedPath();
+        int moved = 0;
+
+        try
+        {
+            Directory.CreateDirectory(into);
+        }
+        catch (Exception e)
+        {
+            trouble = "the folder for old matches could not be made (" + e.GetType().Name + ")";
+            return 0;
+        }
+
+        foreach (string path in stale)
+        {
+            try
+            {
+                string landing = Path.Combine(into, Path.GetFileName(path));
+
+                if (File.Exists(landing)) File.Delete(landing);
+
+                File.Move(path, landing);
+                moved++;
+            }
+            catch (Exception e)
+            {
+                trouble = Path.GetFileName(path) + " could not be moved (" + e.GetType().Name + ")";
+            }
+        }
+
+        if (moved > 0)
+        {
+            knownFingerprint = "";
+            Debug.Log("ReplayList: moved " + moved + " outdated match(es) to " + into + ".");
+        }
+
+        return moved;
+    }
+
+    private static bool Stale(out List<string> stale)
+    {
+        stale = new List<string>();
+
+        string mine = Fingerprint();
+        if (mine.Length == 0) return false;
+
+        string folder = MatchReplayStore.FolderPath();
+
+        try
+        {
+            if (!Directory.Exists(folder)) return false;
+
+            foreach (string path in Directory.GetFiles(folder, "*.txt"))
+            {
+                string cards = CardsOf(path);
+
+                if (cards.Length == 0) continue;
+                if (cards == mine) continue;
+
+                stale.Add(path);
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning("ReplayList: the replay folder could not be scanned (" + e.GetType().Name + ").");
+            return false;
+        }
+
+        return true;
+    }
+
+    private static string CardsOf(string path)
+    {
+        try
+        {
+            foreach (string line in File.ReadLines(path))
+            {
+                if (line.StartsWith("cards=", StringComparison.Ordinal)) return line.Substring(6).Trim();
+                if (line.StartsWith("t=", StringComparison.Ordinal)) return "";
+            }
+        }
+        catch (Exception)
+        {
+        }
+
+        return "";
     }
 
     public static int Count()
@@ -232,6 +360,20 @@ public static class ReplayList
             entry.winner = Named(firstWon ? first : second);
             entry.loser = Named(firstWon ? second : first);
             entry.cards = replay.cards;
+            entry.decks = new Dictionary<string, string>();
+
+            int proven = 0;
+
+            foreach (MatchReplay.Seat carried in replay.seats)
+            {
+                if (string.IsNullOrEmpty(carried.decklist) || string.IsNullOrEmpty(carried.cards)) continue;
+
+                entry.decks[carried.decklist] = carried.cards;
+
+                if (MatchReplay.DeckProven(carried)) proven++;
+            }
+
+            entry.decksProven = proven > 0 && proven == replay.seats.Count;
 
             return true;
         }

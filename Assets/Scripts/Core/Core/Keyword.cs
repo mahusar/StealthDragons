@@ -9,9 +9,14 @@ public static class Keyword
     public static readonly Color Lifesteal = new Color(0.35f, 0.95f, 0.45f, 1f);
     public static readonly Color Charge = new Color(1f, 0.55f, 0.15f, 1f);
     public static readonly Color Deathrattle = new Color(0.72f, 0.45f, 1f, 1f);
+    public static readonly Color Battlecry = new Color(1f, 0.78f, 0.55f, 1f);
     public static readonly Color None = Color.white;
 
     public const int SmallSize = 14;
+
+    public const int SoloSize = 20;
+
+    private const int SoloFits = 18;
 
     public const float StackedSpacing = 0.78f;
 
@@ -45,6 +50,7 @@ public static class Keyword
         if (creature.hasLifesteal) words.Add("LIFESTEAL");
         if (creature.hasShield) words.Add("SHIELD");
         if (creature.hasDeathrattle) words.Add("DEATHRATTLE");
+        if (global::Battlecry.On(creature)) words.Add("BATTLECRY " + global::Battlecry.Line(creature));
 
         return string.Join(" / ", words.ToArray());
     }
@@ -62,18 +68,53 @@ public static class Keyword
 
         string line = string.Join(" / ", words.ToArray());
 
-        if (!creature.hasDeathrattle) return line;
+        List<string> extras = new List<string>();
 
-        string rattle = Wrap("DEATHRATTLE", Deathrattle);
+        if (creature.hasDeathrattle) extras.Add(Wrap("DEATHRATTLE", Deathrattle));
 
-        if (line.Length == 0) return rattle;
+        if (global::Battlecry.On(creature))
+            extras.Add(Wrap("BATTLECRY " + global::Battlecry.Line(creature), Battlecry));
 
-        return line + "\n<size=" + SmallSize + ">" + rattle + "</size>";
+        if (extras.Count == 0) return line;
+
+        string extra = string.Join(" / ", extras.ToArray());
+
+        if (line.Length == 0)
+            return SoloLong(creature) ? "<size=" + SoloSize + ">" + extra + "</size>" : extra;
+
+        return line + "\n<size=" + SmallSize + ">" + extra + "</size>";
     }
 
     public static bool Stacked(CreatureCard creature)
     {
-        return creature != null && creature.hasDeathrattle && HasStandard(creature);
+        if (creature == null) return false;
+        if (!HasExtra(creature)) return false;
+
+        return HasStandard(creature) || SoloLong(creature);
+    }
+
+    private static bool HasExtra(CreatureCard creature)
+    {
+        return creature.hasDeathrattle || global::Battlecry.On(creature);
+    }
+
+    private static bool SoloLong(CreatureCard creature)
+    {
+        if (HasStandard(creature)) return false;
+
+        return ExtraWords(creature).Length > SoloFits;
+    }
+
+    private static string ExtraWords(CreatureCard creature)
+    {
+        List<string> words = new List<string>();
+
+        if (creature.hasDeathrattle) words.Add("DEATHRATTLE");
+
+        if (global::Battlecry.On(creature))
+            words.Add("BATTLECRY " + global::Battlecry.Line(creature));
+
+        return string.Join(" / ", words.ToArray());
     }
 
     private static bool HasStandard(CreatureCard creature)

@@ -124,13 +124,28 @@ public class PracticeMode : MonoBehaviour
 
     public void Restart()
     {
-        restartWanted = true;
-        restartAsked = Time.realtimeSinceStartup;
         Time.timeScale = 1f;
 
         XSTDragonNetworkManager manager = XSTDragonNetworkManager.singleton;
 
-        if (manager != null && (NetworkServer.active || NetworkClient.active)) manager.StopHost();
+        if (manager == null)
+        {
+            Debug.LogWarning("PracticeMode: no network manager, so the match cannot be restarted.");
+            return;
+        }
+
+        if (NetworkServer.active && Active && !ReplayMatch.Active)
+        {
+            botSpawned = false;
+            Debug.Log("PracticeMode: restarting in place - reloading the gameplay scene without dropping the host.");
+            manager.ServerChangeScene(manager.GameplayScene);
+            return;
+        }
+
+        restartWanted = true;
+        restartAsked = Time.realtimeSinceStartup;
+
+        if (NetworkServer.active || NetworkClient.active) manager.StopHost();
     }
 
     void Update()
@@ -176,6 +191,8 @@ public class PracticeMode : MonoBehaviour
         GameManager gameManager = null;
         Player human = null;
 
+        EnsureGamePlayers(manager);
+
         float deadline = Time.realtimeSinceStartup + playerSpawnTimeout;
         while (Time.realtimeSinceStartup < deadline)
         {
@@ -198,6 +215,9 @@ public class PracticeMode : MonoBehaviour
 
         yield return null;
 
+        RemoteBrain brain = bot.GetComponent<RemoteBrain>();
+        if (brain != null) yield return brain.ServerChooseDeck();
+
         bot.deck.ServerLoadDeck();
 
         Debug.Log($"PracticeMode: bot {bot.username} dealt {bot.deck.hand.Count} cards, {bot.deck.deckList.Count} left in deck.");
@@ -206,6 +226,22 @@ public class PracticeMode : MonoBehaviour
 
         gameManager.StartGameForPlayer(human.netIdentity);
         Debug.Log($"PracticeMode: practice match started, {human.username} goes first.");
+    }
+
+    private static void EnsureGamePlayers(XSTDragonNetworkManager manager)
+    {
+        if (manager == null || manager.playerPrefab == null) return;
+
+        foreach (NetworkConnectionToClient conn in NetworkServer.connections.Values)
+        {
+            if (conn == null || conn.identity != null) continue;
+
+            GameObject made = Instantiate(manager.playerPrefab);
+            NetworkServer.AddPlayerForConnection(conn, made);
+
+            Debug.Log($"PracticeMode: rebuilt the game player for connection {conn.connectionId} " +
+                      "after an in-place restart.");
+        }
     }
 
     private Player FindHumanPlayer()
@@ -251,9 +287,18 @@ public class PracticeMode : MonoBehaviour
 
     private void DriveLocally(GameObject botObject, Player bot)
     {
-        AIBot brain = botObject.GetComponent<AIBot>();
-        if (brain == null) brain = botObject.AddComponent<AIBot>();
-        brain.ServerInitialize(bot);
+        AIBot old = botObject.GetComponent<AIBot>();
+        if (old != null) Destroy(old);
+
+        RemoteBrain brain = botObject.GetComponent<RemoteBrain>();
+        if (brain == null) brain = botObject.AddComponent<RemoteBrain>();
+
+        IBotChannel channel = new BuiltInBotChannel(skill, BotIdentity);
+
+        Debug.Log($"PracticeMode: the practice opponent plays the built-in " +
+                  $"{BuiltInBotChannel.NameOf(skill)} policy, so it casts spells and uses its hero power.");
+
+        brain.ServerInitialize(bot, channel);
     }
 
     private void DriveRemotely(GameObject botObject, Player bot)

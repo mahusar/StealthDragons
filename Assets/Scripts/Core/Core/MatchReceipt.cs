@@ -16,6 +16,13 @@ public class MatchReceipt
         public string username;
     }
 
+    public struct Deck
+    {
+        public uint netId;
+        public string cards;
+        public string commitment;
+    }
+
     public string server = "";
     public string match = "";
     public long started;
@@ -28,6 +35,8 @@ public class MatchReceipt
     public string replay = "";
 
     public List<Seat> seats = new List<Seat>();
+
+    public List<Deck> decks = new List<Deck>();
 
     public string Canonical()
     {
@@ -51,6 +60,15 @@ public class MatchReceipt
                       + ":" + (seat.bot ? "bot" : "human")
                       + ":" + Clean(seat.publicKeyHex)
                       + ":" + CleanName(seat.username));
+
+        foreach (Deck deck in decks)
+        {
+            if (string.IsNullOrEmpty(deck.commitment)) continue;
+
+            lines.Add("deck=" + deck.netId
+                      + ":" + Clean(deck.cards)
+                      + ":" + Clean(deck.commitment));
+        }
 
         lines.Sort(StringComparer.Ordinal);
 
@@ -132,6 +150,12 @@ public class MatchReceipt
                 case "reason": receipt.reason = value; break;
                 case "stake": receipt.stake = value; break;
                 case "replay": receipt.replay = value; break;
+                case "deck":
+                    Deck deck;
+                    if (!ParseDeckLine(value, out deck)) return null;
+                    receipt.decks.Add(deck);
+                    break;
+
                 case "player":
                     Seat seat;
                     if (!ParseSeat(value, out seat)) return null;
@@ -142,6 +166,29 @@ public class MatchReceipt
         }
 
         return tagged ? receipt : null;
+    }
+
+    private static bool ParseDeckLine(string value, out Deck deck)
+    {
+        deck = new Deck();
+
+        string[] bits = value.Split(new[] { ':' }, 3);
+        if (bits.Length != 3) return false;
+
+        if (!uint.TryParse(bits[0], out deck.netId)) return false;
+
+        deck.cards = bits[1];
+        deck.commitment = bits[2];
+
+        return deck.commitment.Length > 0;
+    }
+
+    public string CommitmentFor(uint netId)
+    {
+        foreach (Deck deck in decks)
+            if (deck.netId == netId) return deck.commitment;
+
+        return "";
     }
 
     private static bool ParseSeat(string value, out Seat seat)

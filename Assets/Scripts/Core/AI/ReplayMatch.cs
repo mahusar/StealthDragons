@@ -120,6 +120,35 @@ public class ReplayMatch : MonoBehaviour
     {
         trouble = "";
 
+        bool perSeat = false;
+
+        foreach (MatchReplay.Seat seat in watched.seats)
+        {
+            if (string.IsNullOrEmpty(seat.decklist) || string.IsNullOrEmpty(seat.cards)) continue;
+
+            perSeat = true;
+
+            List<CardInfo> composition;
+            string unusable;
+
+            if (!Decklist.Parse(seat.decklist, out composition, out unusable))
+            {
+                trouble = "seat " + seat.index + " played a deck this build cannot rebuild (" + unusable + ")";
+                return false;
+            }
+
+            string now = CardFingerprint.Of(composition);
+
+            if (now != seat.cards)
+            {
+                trouble = "seat " + seat.index + " played cards that have changed since (" + seat.cards +
+                          " then, " + now + " now), so it cannot reproduce";
+                return false;
+            }
+        }
+
+        if (perSeat) return true;
+
         string mine = ReplayList.Fingerprint();
 
         if (mine.Length == 0) return true;
@@ -199,6 +228,9 @@ public class ReplayMatch : MonoBehaviour
         for (int seat = 0; seat < 2; seat++)
         {
             MatchFairness.MapReplaySeat(seats[seat].netId, recorded[seat].netId);
+
+            if (seats[seat].deck != null && !string.IsNullOrEmpty(recorded[seat].decklist))
+                seats[seat].deck.ServerReplaceDeck(recorded[seat].decklist);
 
             seats[seat].username = recorded[seat].username;
             seats[seat].publicKey = recorded[seat].publicKeyHex;

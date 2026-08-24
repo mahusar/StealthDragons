@@ -22,7 +22,7 @@ MonoBehaviour:
   strength: 5
   health: 9
   acceptableTargets: 0301
-  creatureType: 
+  creatureType: 01
   hasCharge: 0
   hasTaunt: 1
   hasShield: 0

@@ -1,0 +1,31 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 992a434fee04c2f47bebd224e2fb0dee, type: 3}
+  m_Name: 46_Cleopatra
+  m_EditorClassIdentifier: 
+  id: 46
+  image: {fileID: 21300000, guid: febe84c3442b45e45807366f27d60043, type: 3}
+  cost: 6
+  category: 
+  description: 
+  strength: 5
+  health: 8
+  acceptableTargets: 0301
+  creatureType: 01
+  hasCharge: 0
+  hasTaunt: 0
+  hasShield: 0
+  hasLifesteal: 0
+  hasDeathrattle: 0
+  deathrattleDamage: 0
+  battlecry: {fileID: 11400000, guid: 1c351313204fc7994086d46953d12df7, type: 2}
+  cardPrefab: {fileID: 3966246863333951121, guid: 66532acc9bfbbe043b5ef65a717193da, type: 3}

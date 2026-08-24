@@ -92,6 +92,11 @@ public class Deck : NetworkBehaviour
 
     public List<CardInfo> StartingComposition()
     {
+        List<CardInfo> picked;
+        string trouble;
+
+        if (Decklist.Parse(chosen, out picked, out trouble)) return picked;
+
         List<CardInfo> composition = new List<CardInfo>();
 
         for (int i = 0; i < startingDeck.Length; ++i)
@@ -154,7 +159,7 @@ public class Deck : NetworkBehaviour
 
     public override void OnStartLocalPlayer()
     {
-        CmdLoadDeck();
+        CmdLoadDeck(Decklist.Load());
 
         if (!seedSubmitted)
         {
@@ -164,6 +169,8 @@ public class Deck : NetworkBehaviour
     }
 
     private bool deckLoaded = false;
+
+    private string chosen = "";
     private bool initialCardsDrawn = false;
     private bool dealt = false;
     private bool seedSubmitted = false;
@@ -240,9 +247,68 @@ public class Deck : NetworkBehaviour
     }
 
     [Command]
-    public void CmdLoadDeck()
+    public void CmdLoadDeck(string wire)
     {
+        ServerChooseDeck(wire);
         ServerLoadDeck();
+    }
+
+    [Server]
+    public void ServerChooseDeck(string wire)
+    {
+        if (deckLoaded)
+        {
+            Debug.LogWarning($"ServerChooseDeck: {player?.username} already has a deck loaded, so the choice is ignored.");
+            return;
+        }
+
+        if (string.IsNullOrEmpty(wire)) return;
+
+        List<CardInfo> picked;
+        string trouble;
+
+        if (!Decklist.Parse(wire, out picked, out trouble))
+        {
+            Debug.LogWarning($"ServerChooseDeck refused {player?.username}'s deck ({trouble}); the default deck is used.");
+            return;
+        }
+
+        chosen = Decklist.Canonical(wire);
+
+        Debug.Log($"ServerChooseDeck: {player?.username} brought a legal {picked.Count}-card deck.");
+    }
+
+    [Server]
+    public void ServerReplaceDeck(string wire)
+    {
+        if (dealt)
+        {
+            Debug.LogWarning($"ServerReplaceDeck: {player?.username} was already dealt, so the deck stands.");
+            return;
+        }
+
+        if (!Decklist.Legal(wire))
+        {
+            Debug.LogWarning($"ServerReplaceDeck refused an illegal deck for {player?.username}.");
+            return;
+        }
+
+        chosen = Decklist.Canonical(wire);
+        deckLoaded = false;
+
+        ServerLoadDeck();
+    }
+
+    [Server]
+    public string ChosenDeck()
+    {
+        return chosen;
+    }
+
+    [Server]
+    public string EffectiveDecklist()
+    {
+        return chosen.Length > 0 ? chosen : Decklist.Canonical(Decklist.Encode(startingDeck));
     }
 
     [Server]
@@ -257,24 +323,16 @@ public class Deck : NetworkBehaviour
 
         string playerId = netIdentity.netId.ToString();
 
+        MatchFairness.CommitDeck(netIdentity.netId, EffectiveDecklist());
+
         deckList.Clear();
 
-        int totalCards = 0;
-        for (int i = 0; i < startingDeck.Length; ++i)
-        {
-            DeckEntry card = startingDeck[i];
-            string cardName = card.card != null ? card.card.name : "null";
-            totalCards += card.amount;
-        }
+        List<CardInfo> composition = StartingComposition();
 
-        for (int i = 0; i < startingDeck.Length; ++i)
-        {
-            DeckEntry card = startingDeck[i];
-            for (int v = 0; v < card.amount; ++v)
-            {
-                deckList.Add(new CardInfo(card.card));
-            }
-        }
+        for (int i = 0; i < composition.Count; i++) deckList.Add(composition[i]);
+
+        Debug.Log($"ServerLoadDeck: {player?.username} loaded {deckList.Count} cards " +
+                  $"({(chosen.Length > 0 ? "their own deck" : "the default deck")}).");
     }
 
     [Server]
@@ -419,6 +477,8 @@ public class Deck : NetworkBehaviour
         gm.ReplayRecordPlay(player, index, card.cardID, newCard != null ? newCard.netId : 0);
 
         if (isServer) RpcPlayCard(boardCard, slot);
+
+        Battlecry.Resolve(newCard);
     }
 
     [Command]
@@ -472,6 +532,65 @@ public class Deck : NetworkBehaviour
         graveyard.Add(card);
 
         gm.ReplayRecordCast(player, index, card.cardID, targetNetId);
+
+        if (targetNetId != 0) RpcSpellFlight(card.cardID, targetNetId);
+    }
+
+    [ClientRpc]
+    private void RpcSpellFlight(string cardId, uint targetNetId)
+    {
+        if (!NetworkClient.spawned.TryGetValue(targetNetId, out NetworkIdentity identity)) return;
+        if (identity == null) return;
+
+        CardDefinition thrown;
+        if (!CardDefinition.Cache.TryGetValue(cardId, out thrown)) return;
+
+        SpellFlight.Show(player, thrown, identity.transform);
+    }
+
+    [Command]
+    public void CmdUseHeroPower(uint targetNetId)
+    {
+        ServerUseHeroPower(targetNetId);
+    }
+
+    [Server]
+    public void ServerUseHeroPower(uint targetNetId)
+    {
+        GameManager gm = FindFirstObjectByType<GameManager>();
+        if (gm == null || !gm.IsTurnOf(player))
+        {
+            Debug.LogWarning($"CmdUseHeroPower rejected: not {player?.username}'s turn.");
+            return;
+        }
+
+        BoardCard chosen = ServerFindBoardCard(targetNetId);
+
+        string trouble;
+        if (!HeroPower.Resolve(player, chosen, out trouble))
+        {
+            Debug.LogWarning($"CmdUseHeroPower rejected: {trouble}.");
+            return;
+        }
+
+        gm.ReplayRecordPower(player, targetNetId);
+
+        RpcHeroPower(targetNetId);
+    }
+
+    [ClientRpc]
+    private void RpcHeroPower(uint targetNetId)
+    {
+        PlayerPortrait portrait = PlayerPortrait.For(player);
+        if (portrait == null) return;
+
+        Transform target = null;
+
+        if (targetNetId != 0 && NetworkClient.spawned.TryGetValue(targetNetId, out NetworkIdentity identity)
+            && identity != null)
+            target = identity.transform;
+
+        portrait.AnimateStrike(target);
     }
 
     [Server]

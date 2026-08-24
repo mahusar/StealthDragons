@@ -193,6 +193,12 @@ public class BotArena : MonoBehaviour
 
         foreach (Player player in seated)
         {
+            RemoteBrain brain = player.GetComponent<RemoteBrain>();
+            if (brain != null) yield return brain.ServerChooseDeck();
+        }
+
+        foreach (Player player in seated)
+        {
             if (player.deck != null) player.deck.ServerLoadDeck();
             player.UpdateEnemyInfo();
         }

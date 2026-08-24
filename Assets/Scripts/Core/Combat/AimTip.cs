@@ -31,6 +31,9 @@ public class AimTip : MonoBehaviour
         if (!reachable)
         {
             ShowHead(defaultHead);
+
+            if (IsAbility && Input.GetMouseButtonDown(0)) Release();
+
             return;
         }
 
@@ -40,7 +43,10 @@ public class AimTip : MonoBehaviour
 
         if (spell != null)
         {
-            CastAt(target);
+            if (IsAbility) PowerAt(target);
+            else CastAt(target);
+
+            AimHighlight.Clear();
             return;
         }
 
@@ -64,6 +70,25 @@ public class AimTip : MonoBehaviour
 
         string trouble;
         return Spellbook.Legal(spell, Player.localPlayer, creature, out trouble);
+    }
+
+    private void Release()
+    {
+        AimHighlight.Clear();
+
+        Player me = Player.localPlayer;
+        if (me != null) me.DestroyTargetingArrow();
+    }
+
+    private void PowerAt(Entity target)
+    {
+        BoardCard creature = target as BoardCard;
+        Player me = Player.localPlayer;
+
+        if (creature == null || me == null || me.deck == null) return;
+
+        me.deck.CmdUseHeroPower(creature.netId);
+        me.DestroyTargetingArrow();
     }
 
     private void CastAt(Entity target)

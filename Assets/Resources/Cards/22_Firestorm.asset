@@ -22,4 +22,8 @@ MonoBehaviour:
   healthChange: -2
   strengthChange: 0
   cardDraw: 0
+  destroys: 0
+  onlyOneKind: 0
+  kind: 1
+  bolts: 1
   untilEndOfTurn: 0

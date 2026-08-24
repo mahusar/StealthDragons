@@ -730,7 +730,7 @@ public class Connect : MonoBehaviour
     private string savedServersText;
     private bool serversPanelWasOpen;
 
-    public void ShowReplayList()
+    public TMP_Text OpenSideList(string title)
     {
         if (savedServersText == null)
         {
@@ -740,7 +740,62 @@ public class Connect : MonoBehaviour
         }
 
         if (serversPanel != null) serversPanel.SetActive(true);
-        if (Headline() != null) Headline().text = "matches";
+        if (Headline() != null) Headline().text = title;
+
+        Silence();
+
+        if (serversText != null) serversText.raycastTarget = true;
+
+        AddScrollbar();
+
+        return serversText;
+    }
+
+    private void Silence()
+    {
+        if (serversText == null) return;
+
+        ReplayPick replay = serversText.GetComponent<ReplayPick>();
+
+        if (replay != null)
+        {
+            replay.picked = null;
+            replay.hovered = null;
+            replay.enabled = false;
+        }
+
+        DeckPick deck = serversText.GetComponent<DeckPick>();
+
+        if (deck != null)
+        {
+            deck.added = null;
+            deck.removed = null;
+            deck.hovered = null;
+            deck.enabled = false;
+        }
+    }
+
+    public DeckPick OpenDeckList()
+    {
+        TMP_Text where = OpenSideList("your deck");
+        if (where == null) return null;
+
+        DeckPick pick = where.GetComponent<DeckPick>();
+        if (pick == null) pick = where.gameObject.AddComponent<DeckPick>();
+
+        pick.enabled = true;
+
+        return pick;
+    }
+
+    public void SetSideText(string text)
+    {
+        SetServersText(text);
+    }
+
+    public void ShowReplayList()
+    {
+        OpenSideList("matches");
 
         MakeListUsable();
 
@@ -748,9 +803,16 @@ public class Connect : MonoBehaviour
         SetServersText(ReplayList.Describe(listed, 0));
     }
 
+    public void CloseSideList()
+    {
+        HideReplayList();
+    }
+
     public void HideReplayList()
     {
         if (savedServersText == null) return;
+
+        Silence();
 
         SetServersText(savedServersText);
 
@@ -797,6 +859,8 @@ public class Connect : MonoBehaviour
 
         ReplayPick pick = serversText.GetComponent<ReplayPick>();
         if (pick == null) pick = serversText.gameObject.AddComponent<ReplayPick>();
+
+        pick.enabled = true;
 
         ReplayUI viewer = GetComponent<ReplayUI>();
         pick.picked = viewer != null ? new System.Action<int>(viewer.PickFromList) : null;

@@ -20,7 +20,18 @@ public class ReplayUI : MonoBehaviour
     [Tooltip("Hidden while the replay panel is open, the same way the swap panel behaves.")]
     [SerializeField] private GameObject[] hideWhileOpen;
 
+    [Header("Tidy Up")]
+    [Tooltip("Left empty it is cloned from the close button when the panel first opens.")]
+    [SerializeField] private Button replayPruneButton;
+
+    [SerializeField] private Vector2 pruneCorner = new Vector2(0f, -266f);
+
+    [Tooltip("The result text is shortened by this much to make room for the prune button.")]
+    [SerializeField] private float pruneRoom = 38f;
+
     private bool busy;
+
+    private bool madeRoom;
 
     void Start()
     {
@@ -31,9 +42,27 @@ public class ReplayUI : MonoBehaviour
         if (replayPanel != null) replayPanel.SetActive(false);
     }
 
+    public Button ReplayButton()
+    {
+        return replayButton;
+    }
+
+    public GameObject ReplayPanel()
+    {
+        return replayPanel;
+    }
+
+    public void CloseIfOpen()
+    {
+        if (replayPanel != null && replayPanel.activeSelf) OnCloseClicked();
+    }
+
     private void OnReplayClicked()
     {
         if (replayPanel == null) return;
+
+        DeckUI builder = GetComponent<DeckUI>();
+        if (builder != null) builder.CloseIfOpen();
 
         replayPanel.SetActive(true);
         Show(Hint());
@@ -41,7 +70,113 @@ public class ReplayUI : MonoBehaviour
         Connect list = GetComponent<Connect>();
         if (list != null) list.ShowReplayList();
 
+        ShowPrune();
+
         foreach (GameObject hidden in Hidden()) hidden.SetActive(false);
+    }
+
+    private void OnPruneClicked()
+    {
+        if (busy)
+        {
+            Show("Still fetching a match - try again in a moment.");
+            return;
+        }
+
+        string trouble;
+        int moved = ReplayList.Prune(out trouble);
+
+        if (moved == 0)
+        {
+            Show(trouble.Length > 0
+                ? "Nothing was moved - " + trouble + "."
+                : "There are no outdated matches to remove.");
+
+            ShowPrune();
+            return;
+        }
+
+        Connect list = GetComponent<Connect>();
+        if (list != null) list.ShowReplayList();
+
+        string line = ((char)10).ToString();
+
+        Show("Moved " + moved + " outdated match" + (moved == 1 ? "" : "es") + " out of the list." + line +
+             "<size=13>They are kept in " + ReplayList.OutdatedFolder +
+             ", so move them back if you want them again.</size>" +
+             (trouble.Length > 0 ? line + "<size=13>" + trouble + "</size>" : ""));
+
+        ShowPrune();
+    }
+
+    private void ShowPrune()
+    {
+        int outdated = ReplayList.OutdatedCount();
+
+        Button button = PruneButton();
+        if (button == null) return;
+
+        bool wanted = outdated > 0;
+
+        if (button.gameObject.activeSelf != wanted) button.gameObject.SetActive(wanted);
+        if (!wanted) return;
+
+        Label(button, "REMOVE " + outdated + " OUTDATED");
+    }
+
+    private Button PruneButton()
+    {
+        if (replayPruneButton != null) return replayPruneButton;
+        if (replayCloseButton == null) return null;
+
+        Transform parent = replayCloseButton.transform.parent;
+        if (parent == null) return null;
+
+        GameObject made = Instantiate(replayCloseButton.gameObject, parent);
+        made.name = "ReplayPruneButton";
+        made.transform.SetSiblingIndex(replayCloseButton.transform.GetSiblingIndex());
+
+        replayPruneButton = made.GetComponent<Button>();
+        replayPruneButton.onClick.RemoveAllListeners();
+        replayPruneButton.onClick.AddListener(OnPruneClicked);
+
+        RectTransform rect = made.GetComponent<RectTransform>();
+        RectTransform from = replayCloseButton.GetComponent<RectTransform>();
+
+        rect.anchorMin = from.anchorMin;
+        rect.anchorMax = from.anchorMax;
+        rect.pivot = from.pivot;
+        rect.sizeDelta = from.sizeDelta;
+        rect.anchoredPosition = pruneCorner;
+
+        MakeRoom();
+
+        return replayPruneButton;
+    }
+
+    private void MakeRoom()
+    {
+        if (madeRoom || replayResultText == null || pruneRoom <= 0f) return;
+
+        madeRoom = true;
+
+        RectTransform rect = replayResultText.GetComponent<RectTransform>();
+        if (rect == null) return;
+
+        rect.sizeDelta = new Vector2(rect.sizeDelta.x, rect.sizeDelta.y - pruneRoom);
+    }
+
+    private static void Label(Button button, string text)
+    {
+        TMP_Text tmp = button.GetComponentInChildren<TMP_Text>(true);
+        if (tmp != null)
+        {
+            tmp.text = text;
+            return;
+        }
+
+        Text plain = button.GetComponentInChildren<Text>(true);
+        if (plain != null) plain.text = text;
     }
 
     private void OnCloseClicked()

@@ -14,6 +14,12 @@ public static class MatchFairness
     private static readonly Dictionary<uint, byte[]> clientSeeds = new Dictionary<uint, byte[]>();
     private static readonly Dictionary<uint, string> dealtOrders = new Dictionary<uint, string>();
 
+    private static readonly Dictionary<uint, string> deckCommitments = new Dictionary<uint, string>();
+
+    private static readonly Dictionary<uint, string> deckNonces = new Dictionary<uint, string>();
+
+    private static readonly Dictionary<uint, string> deckReveals = new Dictionary<uint, string>();
+
     public static bool Begun { get { return serverSeed != null; } }
 
     public static bool Settled { get { return settled; } }
@@ -112,6 +118,9 @@ public static class MatchFairness
         seedCommitments.Clear();
         clientSeeds.Clear();
         dealtOrders.Clear();
+        deckCommitments.Clear();
+        deckNonces.Clear();
+        deckReveals.Clear();
         Replaying = false;
         replaySeats.Clear();
         MatchRandom.Reset();
@@ -176,6 +185,90 @@ public static class MatchFairness
         clientSeeds[netId] = seed;
         Debug.Log("MatchFairness: accepted a shuffle seed from " + netId + " (" + clientSeeds.Count + " so far).");
         return true;
+    }
+
+    public static bool CommitDeck(uint netId, string wire)
+    {
+        if (string.IsNullOrEmpty(wire)) return false;
+
+        if (deckCommitments.ContainsKey(netId))
+        {
+            Debug.LogWarning("MatchFairness: a second deck commitment from " + netId + " was ignored.");
+            return false;
+        }
+
+        byte[] nonce = DeckSecret.NewNonce();
+
+        deckNonces[netId] = CardShuffle.Hex(nonce);
+        deckCommitments[netId] = DeckSecret.CommitmentHex(nonce, wire);
+
+        Debug.Log("MatchFairness: " + netId + " committed to a deck nobody can read yet, commitment=" +
+                  deckCommitments[netId].Substring(0, 16) + ".");
+
+        return true;
+    }
+
+    public static string DeckCommitmentOf(uint netId)
+    {
+        string found;
+
+        return deckCommitments.TryGetValue(netId, out found) ? found : "";
+    }
+
+    public static string DeckNonceOf(uint netId)
+    {
+        string found;
+
+        return deckNonces.TryGetValue(netId, out found) ? found : "";
+    }
+
+    public static bool RevealDeck(uint netId, string wire)
+    {
+        if (string.IsNullOrEmpty(wire)) return false;
+        if (!deckCommitments.ContainsKey(netId)) return false;
+
+        deckReveals[netId] = wire;
+
+        Debug.Log("MatchFairness: " + netId + " revealed the deck it committed to.");
+
+        return true;
+    }
+
+    public static string DeckCommitmentsText
+    {
+        get
+        {
+            List<string> parts = new List<string>();
+
+            foreach (KeyValuePair<uint, string> entry in deckCommitments)
+                parts.Add(entry.Key + ":" + entry.Value);
+
+            parts.Sort(System.StringComparer.Ordinal);
+
+            return string.Join(";", parts.ToArray());
+        }
+    }
+
+    public static string DeckRevealsText
+    {
+        get
+        {
+            List<string> parts = new List<string>();
+
+            foreach (KeyValuePair<uint, string> entry in deckReveals)
+                parts.Add(entry.Key + ":" + DeckNonceOf(entry.Key) + ":" + entry.Value);
+
+            parts.Sort(System.StringComparer.Ordinal);
+
+            return string.Join(";", parts.ToArray());
+        }
+    }
+
+    public static string DeckRevealOf(uint netId)
+    {
+        string found;
+
+        return deckReveals.TryGetValue(netId, out found) ? found : "";
     }
 
     public static bool AddDealtOrder(uint netId, string fingerprint)

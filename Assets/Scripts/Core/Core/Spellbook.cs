@@ -20,10 +20,25 @@ public static class Spellbook
             return false;
         }
 
-        List<BoardCard> hit;
-        if (!Targets(spell, caster, chosen, out hit, out trouble)) return false;
+        List<BoardCard> hit = new List<BoardCard>();
 
-        foreach (BoardCard card in hit) Apply(spell, card);
+        if (spell.Scatters)
+        {
+            for (int bolt = 0; bolt < spell.Bolts; bolt++)
+            {
+                BoardCard mark = Drawn(spell, caster);
+                if (mark == null) break;
+
+                Apply(spell, mark);
+                hit.Add(mark);
+            }
+        }
+        else
+        {
+            if (!Targets(spell, caster, chosen, out hit, out trouble)) return false;
+
+            foreach (BoardCard card in hit) Apply(spell, card);
+        }
 
         if (spell.cardDraw > 0 && caster.deck != null) caster.deck.ServerDrawCards(spell.cardDraw);
 
@@ -44,6 +59,12 @@ public static class Spellbook
         if (chosen == null || chosen.health <= 0 || !chosen.isTargetable)
         {
             trouble = "that target is gone";
+            return false;
+        }
+
+        if (!spell.Reaches(Creature(chosen)))
+        {
+            trouble = "this spell only reaches a " + spell.kind.ToString().ToLowerInvariant();
             return false;
         }
 
@@ -84,7 +105,7 @@ public static class Spellbook
         {
             string trouble;
 
-            foreach (BoardCard card in Pool(caster, !spell.Harmful))
+            foreach (BoardCard card in Pool(caster, !spell.Harmful, spell))
                 if (Legal(spell, caster, card, out trouble)) shown.Add(card);
 
             return shown;
@@ -92,7 +113,7 @@ public static class Spellbook
 
         if (spell.affects == Target.OWNER) return shown;
 
-        List<BoardCard> pool = Pool(caster, spell.affects == Target.FRIENDLIES);
+        List<BoardCard> pool = Pool(caster, spell.affects == Target.FRIENDLIES, spell);
 
         if (spell.affects == Target.RANDOM) return spell.Harmful ? Guarded(pool) : pool;
 
@@ -121,22 +142,28 @@ public static class Spellbook
 
         if (spell.affects == Target.OWNER) return true;
 
-        List<BoardCard> pool = Pool(caster, spell.affects == Target.FRIENDLIES);
-
-        if (spell.affects == Target.RANDOM)
-        {
-            List<BoardCard> reachable = spell.Harmful ? Guarded(pool) : pool;
-            if (reachable.Count == 0) return true;
-
-            hit.Add(reachable[MatchRandom.Below(reachable.Count)]);
-            return true;
-        }
+        List<BoardCard> pool = Pool(caster, spell.affects == Target.FRIENDLIES, spell);
 
         hit.AddRange(pool);
         return true;
     }
 
+    private static BoardCard Drawn(SpellCard spell, Player caster)
+    {
+        List<BoardCard> pool = Pool(caster, spell.affects == Target.FRIENDLIES, spell);
+        List<BoardCard> reachable = spell.Harmful ? Guarded(pool) : pool;
+
+        if (reachable.Count == 0) return null;
+
+        return reachable[MatchRandom.Below(reachable.Count)];
+    }
+
     private static List<BoardCard> Pool(Player caster, bool friendly)
+    {
+        return Pool(caster, friendly, null);
+    }
+
+    private static List<BoardCard> Pool(Player caster, bool friendly, SpellCard spell)
     {
         List<BoardCard> found = new List<BoardCard>();
 
@@ -144,6 +171,7 @@ public static class Spellbook
         {
             if (card == null || card.health <= 0 || card.owner == null) continue;
             if ((card.owner == caster) != friendly) continue;
+            if (spell != null && !spell.Reaches(Creature(card))) continue;
 
             found.Add(card);
         }
@@ -151,6 +179,13 @@ public static class Spellbook
         found.Sort(ByNetId);
 
         return found;
+    }
+
+    private static CreatureCard Creature(BoardCard card)
+    {
+        if (card == null || !card.card.Known) return null;
+
+        return card.card.data as CreatureCard;
     }
 
     private static List<BoardCard> Guarded(List<BoardCard> pool)
@@ -167,12 +202,56 @@ public static class Spellbook
     {
         if (card == null) return;
 
+        if (spell.destroys)
+        {
+            Slay(card);
+            return;
+        }
+
         if (spell.strengthChange != 0 && card.combat != null)
             card.combat.ServerChangeStrength(spell.strengthChange);
 
         if (spell.healthChange < 0) Combat.ServerDealDamage(card, -spell.healthChange);
-        else if (spell.healthChange > 0 && card.combat != null)
-            card.combat.ServerChangeHealth(spell.healthChange);
+        else if (spell.healthChange > 0) Restore(card, spell.healthChange);
+    }
+
+    private static void Slay(BoardCard card)
+    {
+        if (card.shielded)
+        {
+            card.shielded = false;
+            Debug.Log("Spellbook: " + card.name + " absorbed a destroy with its shield.");
+            return;
+        }
+
+        if (card.combat == null || card.health <= 0) return;
+
+        card.combat.ServerChangeHealth(-card.health);
+    }
+
+    private static void Restore(BoardCard card, int amount)
+    {
+        if (card.combat == null || amount <= 0) return;
+
+        int ceiling = Printed(card);
+        int healed = ceiling > 0 ? Mathf.Min(amount, ceiling - card.health) : amount;
+
+        if (healed <= 0)
+        {
+            Debug.Log("Spellbook: " + card.name + " is already at full health.");
+            return;
+        }
+
+        card.combat.ServerChangeHealth(healed);
+    }
+
+    private static int Printed(BoardCard card)
+    {
+        if (!card.card.Known) return 0;
+
+        CreatureCard creature = card.card.data as CreatureCard;
+
+        return creature != null ? creature.health : 0;
     }
 
     private static int ByNetId(BoardCard left, BoardCard right)

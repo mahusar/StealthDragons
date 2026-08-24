@@ -27,6 +27,9 @@ public partial class CreatureCard : CardDefinition
     public bool hasDeathrattle = false;
     public int deathrattleDamage = 0;
 
+    [Header("Battlecry")]
+    public SpellCard battlecry;
+
     [Header("Board Prefab")]
     public BoardCard cardPrefab;
 

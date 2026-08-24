@@ -27,6 +27,12 @@ public class Player : Entity
     [SyncVar] public int graveCount = 0;
 
     [Header("Stats")]
+    [Header("Hero Power")]
+    public SpellCard heroPower;
+    public int heroPowerCost = 1;
+
+    [SyncVar, HideInInspector] public bool heroPowerUsed = false;
+
     [SyncVar] public int maxMana = 10;
     [SyncVar] public int currentMax = 0;
     [SyncVar] public int _mana = 0;

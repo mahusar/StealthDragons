@@ -19,8 +19,13 @@ public static class PlayerName
 
     public static void Save(string name)
     {
-        PlayerPrefs.SetString(PlayerPrefsKey, Sanitize(name));
+        Remember(name);
         PlayerPrefs.Save();
+    }
+
+    public static void Remember(string name)
+    {
+        PlayerPrefs.SetString(PlayerPrefsKey, Sanitize(name));
     }
 
     public static string Sanitize(string name)

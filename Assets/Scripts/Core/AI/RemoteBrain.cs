@@ -20,6 +20,9 @@ public class RemoteBrain : MonoBehaviour
     [Tooltip("Seconds a bot gets to sign the match receipt before the seat is left unsigned.")]
     public float signatureTimeout = 8f;
 
+    [Tooltip("Seconds a bot gets to send a decklist before its seat plays the default deck.")]
+    public float deckTimeout = 5f;
+
     [Header("Pacing")]
     [Tooltip("Seconds between applied actions, so a human can follow the board.")]
     public float actionDelay = 0.6f;
@@ -179,6 +182,53 @@ public class RemoteBrain : MonoBehaviour
         if (StillOurTurn()) gameManager.ServerEndTurn(self);
 
         takingTurn = false;
+    }
+
+    public IEnumerator ServerChooseDeck()
+    {
+        if (!NetworkServer.active || self == null || channel == null || self.deck == null) yield break;
+
+        int token = System.Threading.Interlocked.Increment(ref nextToken);
+
+        if (!Ask(token, BotView.BuildDeckRequest()))
+        {
+            Debug.LogWarning($"RemoteBrain: {BotName} could not be asked for a deck, so {self.username} plays the default deck.");
+            yield break;
+        }
+
+        string answer = null;
+        float deadline = Time.realtimeSinceStartup + deckTimeout;
+
+        while (Time.realtimeSinceStartup < deadline)
+        {
+            if (!TryPoll(token, out answer))
+            {
+                answer = null;
+                break;
+            }
+
+            if (answer != null) break;
+            yield return null;
+        }
+
+        if (string.IsNullOrEmpty(answer))
+        {
+            Cancel(token);
+            Debug.Log($"RemoteBrain: {BotName} sent no decklist within {deckTimeout:0.#}s, " +
+                      $"so {self.username} plays the default deck.");
+            yield break;
+        }
+
+        string wire = answer.Trim();
+
+        if (!Decklist.Legal(wire))
+        {
+            Debug.LogWarning($"RemoteBrain: {BotName} sent a decklist the server will not accept " +
+                             $"(\"{Shorten(wire)}\"), so {self.username} plays the default deck.");
+            yield break;
+        }
+
+        self.deck.ServerChooseDeck(wire);
     }
 
     public void ServerRequestReceiptSignature(string digestHex)

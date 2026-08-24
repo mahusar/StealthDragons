@@ -98,12 +98,20 @@ public class BuiltInBotChannel : IBotChannel
             return BotAction.End;
         }
 
+        if (Word(board, "phase") == "deck") return ChooseDeck();
+
         if (!Flag(board, "yourTurn")) return BotAction.End;
 
         if (skill != BotSkill.Easy)
         {
             string swing = Finisher(board);
             if (swing != null) return swing;
+        }
+
+        if (skill != BotSkill.Easy)
+        {
+            string finish = ChoosePower(board, true);
+            if (finish != null) return finish;
         }
 
         if (skill != BotSkill.Easy)
@@ -118,7 +126,22 @@ public class BuiltInBotChannel : IBotChannel
         string attack = ChooseAttack(board, skill);
         if (attack != null) return attack;
 
+        if (skill != BotSkill.Easy)
+        {
+            string power = ChoosePower(board, false);
+            if (power != null) return power;
+        }
+
         return BotAction.End;
+    }
+
+    private static string ChooseDeck()
+    {
+        DeckDraft draft = DeckDraft.From("");
+
+        draft.Fill();
+
+        return draft.Wire();
     }
 
     private static string Finisher(JObject board)
@@ -173,55 +196,269 @@ public class BuiltInBotChannel : IBotChannel
             int cost = Number(card, "cost");
             if (cost > mana) continue;
 
-            int hit = -Number(card, "healthChange");
-            if (hit <= 0) continue;
+            int score = 0;
+            string move = null;
 
-            if (!Flag(card, "targeted"))
-            {
-                if (Word(card, "affects") != "enemies") continue;
+            if (Flag(card, "destroys")) move = Removal(board, card, cost, walled, out score);
+            else if (Number(card, "healthChange") < 0) move = Damage(board, card, cost, walled, out score);
+            else if (Number(card, "strengthChange") > 0) move = Buff(board, card, cost, out score);
+            else if (Number(card, "healthChange") > 0) move = Repair(board, card, cost, out score);
+            else if (Number(card, "cardDraw") > 0) move = Refill(board, card, cost, mana, out score);
 
-                int kills = 0;
-                int touched = 0;
+            if (move == null || score <= bestScore) continue;
 
-                foreach (JToken enemy in Array(board, "enemyField"))
-                {
-                    int health = Number(enemy, "health");
-                    if (health <= 0) continue;
-
-                    touched++;
-                    if (health <= hit && !Flag(enemy, "shield")) kills++;
-                }
-
-                if (kills == 0 && touched < 2) continue;
-
-                int sweep = kills * 20 + touched * 4 - cost;
-                if (sweep <= bestScore) continue;
-
-                bestScore = sweep;
-                best = BotAction.Cast + " " + Number(card, "index").ToString(CultureInfo.InvariantCulture);
-                continue;
-            }
-
-            foreach (JToken enemy in Array(board, "enemyField"))
-            {
-                if (!Flag(enemy, "targetable")) continue;
-                if (Flag(enemy, "shield")) continue;
-                if (walled && !Flag(enemy, "taunt")) continue;
-
-                int health = Number(enemy, "health");
-                if (health <= 0 || health > hit) continue;
-
-                int score = 20 + Body(enemy) - cost;
-                if (score <= bestScore) continue;
-
-                bestScore = score;
-                best = BotAction.Cast + " " +
-                       Number(card, "index").ToString(CultureInfo.InvariantCulture) + " " +
-                       Number(enemy, "netId").ToString(CultureInfo.InvariantCulture);
-            }
+            bestScore = score;
+            best = move;
         }
 
         return best;
+    }
+
+    private static string ChoosePower(JObject board, bool killsOnly)
+    {
+        JToken power = board["you"] == null ? null : board["you"]["heroPower"];
+        if (power == null || power.Type == JTokenType.Null) return null;
+        if (!Flag(power, "ready")) return null;
+
+        if (!Flag(power, "targeted"))
+        {
+            if (killsOnly) return null;
+
+            return Number(power, "cardDraw") > 0 || Number(power, "healthChange") != 0
+                ? BotAction.Power
+                : null;
+        }
+
+        int hit = -Number(power, "healthChange");
+        if (hit <= 0) return null;
+
+        bool walled = Walled(board);
+
+        string best = null;
+        int score = 0;
+
+        foreach (JToken enemy in Array(board, "enemyField"))
+        {
+            if (!Flag(enemy, "targetable") || Flag(enemy, "shield")) continue;
+            if (walled && !Flag(enemy, "taunt")) continue;
+            if (!Reaches(power, enemy)) continue;
+
+            int health = Number(enemy, "health");
+            if (health <= 0) continue;
+
+            bool kills = health <= hit;
+            if (killsOnly && !kills) continue;
+
+            int worth = kills ? 20 + Body(enemy) : Mathf.Max(1, hit * 2 - health / 2);
+            if (worth <= score) continue;
+
+            score = worth;
+            best = BotAction.Power + " " + Number(enemy, "netId").ToString(CultureInfo.InvariantCulture);
+        }
+
+        return best;
+    }
+
+    private static string Removal(JObject board, JToken card, int cost, bool walled, out int score)
+    {
+        score = 0;
+        string best = null;
+
+        foreach (JToken enemy in Array(board, "enemyField"))
+        {
+            if (!Flag(enemy, "targetable")) continue;
+            if (Flag(enemy, "shield")) continue;
+            if (walled && !Flag(enemy, "taunt")) continue;
+            if (!Reaches(card, enemy)) continue;
+
+            int body = Body(enemy);
+            if (body < 12) continue;
+
+            int worth = 40 + body - cost * 2;
+            if (worth <= score) continue;
+
+            score = worth;
+            best = Aimed(card, enemy);
+        }
+
+        return best;
+    }
+
+    private static string Damage(JObject board, JToken card, int cost, bool walled, out int score)
+    {
+        score = 0;
+
+        int hit = -Number(card, "healthChange");
+        if (hit <= 0) return null;
+
+        if (!Flag(card, "targeted"))
+        {
+            string affects = Word(card, "affects");
+            if (affects != "enemies" && affects != "random") return null;
+
+            int touched = 0;
+            int kills = 0;
+
+            foreach (JToken enemy in Array(board, "enemyField"))
+            {
+                int health = Number(enemy, "health");
+                if (health <= 0 || !Reaches(card, enemy)) continue;
+
+                touched++;
+                if (health <= hit && !Flag(enemy, "shield")) kills++;
+            }
+
+            if (touched == 0) return null;
+
+            if (affects == "random")
+            {
+                int bolts = Mathf.Max(1, Number(card, "bolts"));
+                score = bolts * hit * 2 + (kills > 0 ? 10 : 0) - cost;
+
+                return score > 0
+                    ? BotAction.Cast + " " + Number(card, "index").ToString(CultureInfo.InvariantCulture)
+                    : null;
+            }
+
+            if (kills == 0 && touched < 2) return null;
+
+            score = kills * 20 + touched * 4 - cost;
+            return BotAction.Cast + " " + Number(card, "index").ToString(CultureInfo.InvariantCulture);
+        }
+
+        string best = null;
+
+        foreach (JToken enemy in Array(board, "enemyField"))
+        {
+            if (!Flag(enemy, "targetable")) continue;
+            if (Flag(enemy, "shield")) continue;
+            if (walled && !Flag(enemy, "taunt")) continue;
+
+            if (!Reaches(card, enemy)) continue;
+
+            int health = Number(enemy, "health");
+            if (health <= 0 || health > hit) continue;
+
+            int worth = 20 + Body(enemy) - cost;
+            if (worth <= score) continue;
+
+            score = worth;
+            best = Aimed(card, enemy);
+        }
+
+        return best;
+    }
+
+    private static string Buff(JObject board, JToken card, int cost, out int score)
+    {
+        score = 0;
+
+        int lift = Number(card, "strengthChange");
+
+        if (!Flag(card, "targeted"))
+        {
+            int wide = 0;
+
+            foreach (JToken mine in Array(board, "yourField"))
+                if (Number(mine, "health") > 0 && Reaches(card, mine)) wide++;
+
+            if (wide < 3) return null;
+
+            score = wide * lift * 3 - cost;
+            return score > 0
+                ? BotAction.Cast + " " + Number(card, "index").ToString(CultureInfo.InvariantCulture)
+                : null;
+        }
+
+        string best = null;
+
+        foreach (JToken mine in Array(board, "yourField"))
+        {
+            if (Number(mine, "health") <= 0) continue;
+            if (!Reaches(card, mine)) continue;
+
+            int worth = lift * 3 + Body(mine) / 4 - cost;
+            if (worth <= score) continue;
+
+            score = worth;
+            best = Aimed(card, mine);
+        }
+
+        return best;
+    }
+
+    private static string Repair(JObject board, JToken card, int cost, out int score)
+    {
+        score = 0;
+
+        int heal = Number(card, "healthChange");
+        if (heal <= 0) return null;
+
+        string best = null;
+
+        foreach (JToken mine in Array(board, "yourField"))
+        {
+            int health = Number(mine, "health");
+            int printed = Number(mine, "maxHealth");
+            if (health <= 0 || printed <= 0) continue;
+            if (!Reaches(card, mine)) continue;
+
+            int used = Mathf.Min(heal, printed - health);
+            if (used < 3) continue;
+
+            int worth = used * 2 - cost;
+            if (worth <= score) continue;
+
+            score = worth;
+            best = Aimed(card, mine);
+        }
+
+        return best;
+    }
+
+    private static string Refill(JObject board, JToken card, int cost, int mana, out int score)
+    {
+        score = 0;
+
+        int drawn = Number(card, "cardDraw");
+        int held = Count(board, "hand");
+
+        if (drawn <= 0 || held >= 7) return null;
+        if (held > 2 && Affordable(board, mana - cost)) return null;
+
+        score = 4 + drawn * 2 - cost;
+
+        return score > 0
+            ? BotAction.Cast + " " + Number(card, "index").ToString(CultureInfo.InvariantCulture)
+            : null;
+    }
+
+    private static bool Reaches(JToken spell, JToken creature)
+    {
+        string only = Word(spell, "onlyTribe");
+        if (only.Length == 0) return true;
+
+        string tribe = Word(creature, "tribe");
+
+        return tribe == only || tribe == "all";
+    }
+
+    private static bool Affordable(JObject board, int mana)
+    {
+        foreach (JToken card in Array(board, "hand"))
+        {
+            if (Word(card, "kind") != "creature") continue;
+            if (Number(card, "cost") <= mana) return true;
+        }
+
+        return false;
+    }
+
+    private static string Aimed(JToken card, JToken target)
+    {
+        return BotAction.Cast + " " +
+               Number(card, "index").ToString(CultureInfo.InvariantCulture) + " " +
+               Number(target, "netId").ToString(CultureInfo.InvariantCulture);
     }
 
     private static List<JToken> Rushers(JObject board)
@@ -290,6 +527,8 @@ public class BuiltInBotChannel : IBotChannel
             if (Flag(card, "charge")) score += 2;
             if (Flag(card, "deathrattle")) score += Number(card, "deathrattleDamage") + 2;
 
+            score += CryWorth(board, card);
+
             if (score <= bestScore) continue;
 
             bestScore = score;
@@ -299,6 +538,43 @@ public class BuiltInBotChannel : IBotChannel
         return bestIndex < 0
             ? null
             : BotAction.Play + " " + bestIndex.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private static int CryWorth(JObject board, JToken card)
+    {
+        JToken cry = card["battlecry"];
+        if (cry == null || cry.Type == JTokenType.Null) return 0;
+
+        int worth = Number(cry, "cardDraw") * 4;
+
+        int hit = -Number(cry, "healthChange");
+
+        if (hit > 0)
+        {
+            int reach = 0;
+            int kills = 0;
+
+            foreach (JToken enemy in Array(board, "enemyField"))
+            {
+                if (Number(enemy, "health") <= 0) continue;
+
+                reach++;
+                if (Number(enemy, "health") <= hit && !Flag(enemy, "shield")) kills++;
+            }
+
+            if (reach > 0)
+            {
+                string affects = Word(cry, "affects");
+                int landings = affects == "enemies" ? reach : Mathf.Max(1, Number(cry, "bolts"));
+
+                worth += hit * landings + kills * 6;
+            }
+        }
+
+        int lift = Number(cry, "strengthChange");
+        if (lift > 0) worth += lift * 2;
+
+        return worth;
     }
 
     private static string EasyCreature(JObject board, int mana)
@@ -475,7 +751,7 @@ public class BuiltInBotChannel : IBotChannel
 
     private static int Number(JToken owner, string name)
     {
-        if (owner == null) return 0;
+        if (owner == null || owner.Type == JTokenType.Null) return 0;
 
         JToken found = owner[name];
         if (found == null || found.Type == JTokenType.Null) return 0;
@@ -488,7 +764,7 @@ public class BuiltInBotChannel : IBotChannel
 
     private static bool Flag(JToken owner, string name)
     {
-        if (owner == null) return false;
+        if (owner == null || owner.Type == JTokenType.Null) return false;
 
         JToken found = owner[name];
         if (found == null || found.Type == JTokenType.Null) return false;
@@ -499,7 +775,7 @@ public class BuiltInBotChannel : IBotChannel
 
     private static string Word(JToken owner, string name)
     {
-        if (owner == null) return "";
+        if (owner == null || owner.Type == JTokenType.Null) return "";
 
         JToken found = owner[name];
         return found == null || found.Type == JTokenType.Null ? "" : found.ToString();

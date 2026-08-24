@@ -99,6 +99,22 @@ public class ReplayChannel : IBotChannel
             return cast + " " + aimedAt.ToString(CultureInfo.InvariantCulture);
         }
 
+        if (move.verb == BotAction.Power)
+        {
+            if (string.IsNullOrEmpty(move.target)) return BotAction.Power;
+
+            uint aimedAt = Resolve(move.target);
+
+            if (aimedAt == 0)
+            {
+                Diverge("the replay aims a hero power at a creature that is not on this board (" +
+                        move.target + ")");
+                return BotAction.End;
+            }
+
+            return BotAction.Power + " " + aimedAt.ToString(CultureInfo.InvariantCulture);
+        }
+
         if (move.verb == BotAction.Attack)
         {
             uint attacker = Resolve(move.attacker);

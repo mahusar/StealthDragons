@@ -18,6 +18,10 @@ public class MatchReplay
         public int index;
         public uint netId;
         public string username;
+        public string cards;
+        public string commitment;
+        public string nonce;
+        public string decklist;
         public string publicKeyHex;
     }
 
@@ -133,6 +137,19 @@ public class MatchReplay
         Moves++;
     }
 
+    public void RecordPower(uint playerNetId, uint targetNetId)
+    {
+        if (Sealed) return;
+
+        SeatOf(playerNetId);
+
+        string target = targetNetId == 0 ? "" : StableOf(targetNetId);
+        if (targetNetId != 0 && target.Length == 0) target = "?";
+
+        lines.Add("m=power" + (target.Length == 0 ? "" : " " + target));
+        Moves++;
+    }
+
     public void RecordEnd(uint playerNetId)
     {
         if (Sealed) return;
@@ -172,6 +189,26 @@ public class MatchReplay
               .Append(':').Append(Clean(seat.publicKeyHex))
               .Append(':').Append(CleanName(seat.username))
               .Append('\n');
+
+        foreach (Seat seat in seats)
+        {
+            if (string.IsNullOrEmpty(seat.decklist)) continue;
+
+            sb.Append("deck=").Append(seat.index)
+              .Append(':').Append(Clean(seat.cards))
+              .Append(':').Append(Clean(seat.commitment))
+              .Append(':').Append(Clean(seat.decklist))
+              .Append('\n');
+        }
+
+        foreach (Seat seat in seats)
+        {
+            if (string.IsNullOrEmpty(seat.nonce)) continue;
+
+            sb.Append("nonce=").Append(seat.index)
+              .Append(':').Append(Clean(seat.nonce))
+              .Append('\n');
+        }
 
         foreach (string line in lines) sb.Append(line).Append('\n');
 
@@ -226,6 +263,8 @@ public class MatchReplay
         int turn = 0;
         int seat = 0;
 
+        Dictionary<int, Seat> decks = new Dictionary<int, Seat>();
+
         foreach (string raw in canonical.Split(NewLine))
         {
             string line = raw.TrimEnd(Return);
@@ -254,6 +293,28 @@ public class MatchReplay
                     replay.seats.Add(parsed);
                     break;
 
+                case "nonce":
+                    int nonceSeat;
+                    string nonceHex;
+                    if (!ParseNonce(value, out nonceSeat, out nonceHex)) return null;
+
+                    Seat held;
+                    decks.TryGetValue(nonceSeat, out held);
+                    held.nonce = nonceHex;
+                    decks[nonceSeat] = held;
+                    break;
+
+                case "deck":
+                    int deckSeat;
+                    Seat carried;
+                    if (!ParseDeck(value, out deckSeat, out carried)) return null;
+
+                    Seat already;
+                    if (decks.TryGetValue(deckSeat, out already)) carried.nonce = already.nonce;
+
+                    decks[deckSeat] = carried;
+                    break;
+
                 case "t":
                     if (!ParseTurn(value, out turn, out seat)) return null;
                     replay.lines.Add(line);
@@ -278,7 +339,68 @@ public class MatchReplay
             }
         }
 
+        for (int i = 0; i < replay.seats.Count; i++)
+        {
+            Seat carried;
+            if (!decks.TryGetValue(replay.seats[i].index, out carried)) continue;
+
+            Seat merged = replay.seats[i];
+            merged.cards = carried.cards;
+            merged.commitment = carried.commitment;
+            merged.nonce = carried.nonce;
+            merged.decklist = carried.decklist;
+
+            replay.seats[i] = merged;
+        }
+
         return tagged ? replay : null;
+    }
+
+    private static bool ParseDeck(string value, out int index, out Seat carried)
+    {
+        index = 0;
+        carried = new Seat();
+
+        string[] bits = value.Split(new[] { ':' }, 4);
+        if (bits.Length != 4) return false;
+
+        if (!int.TryParse(bits[0], out index)) return false;
+
+        carried.cards = bits[1];
+        carried.commitment = bits[2];
+        carried.decklist = bits[3];
+
+        return true;
+    }
+
+    public static bool DeckProven(Seat seat)
+    {
+        if (string.IsNullOrEmpty(seat.decklist)) return false;
+        if (string.IsNullOrEmpty(seat.commitment) || string.IsNullOrEmpty(seat.nonce)) return false;
+
+        if (!DeckSecret.Holds(seat.commitment, seat.nonce, seat.decklist)) return false;
+
+        List<CardInfo> composition;
+        string trouble;
+
+        if (!Decklist.Parse(seat.decklist, out composition, out trouble)) return false;
+
+        return CardFingerprint.Of(composition) == seat.cards;
+    }
+
+    private static bool ParseNonce(string value, out int index, out string nonceHex)
+    {
+        index = 0;
+        nonceHex = "";
+
+        string[] bits = value.Split(new[] { ':' }, 2);
+        if (bits.Length != 2) return false;
+
+        if (!int.TryParse(bits[0], out index)) return false;
+
+        nonceHex = bits[1];
+
+        return nonceHex.Length > 0;
     }
 
     private static bool ParseSeat(string value, out Seat seat)
@@ -351,6 +473,13 @@ public class MatchReplay
             if (bits.Length < 3 || !int.TryParse(bits[1], out move.handIndex)) return false;
             move.cardId = bits[2];
             if (bits.Length > 3) move.target = bits[3];
+            return true;
+        }
+
+        if (move.verb == "power")
+        {
+            if (bits.Length > 2) return false;
+            if (bits.Length == 2) move.target = bits[1];
             return true;
         }
 

@@ -22,16 +22,17 @@ public static class BotView
 
         json.Append('{');
         Number(json, "protocol", Protocol, true);
+        Text(json, "phase", "move", false);
         Number(json, "turn", gameManager.turnCount, false);
         Bool(json, "yourTurn", gameManager.currentTurnNetId == self.netId, false);
         Number(json, "secondsLeft", SecondsLeft(gameManager), false);
 
         Key(json, "you", false);
-        Seat(json, self, ours.Count);
+        Seat(json, self, ours.Count, true);
 
         Key(json, "opponent", false);
         if (opponent == null) json.Append("null");
-        else Seat(json, opponent, theirs.Count);
+        else Seat(json, opponent, theirs.Count, false);
 
         Key(json, "hand", false);
         Hand(json, self);
@@ -47,7 +48,7 @@ public static class BotView
         return json.ToString();
     }
 
-    private static void Seat(StringBuilder json, Player player, int fieldCount)
+    private static void Seat(StringBuilder json, Player player, int fieldCount, bool mine)
     {
         json.Append('{');
         Number(json, "netId", (int)player.netId, true);
@@ -59,6 +60,37 @@ public static class BotView
         Number(json, "fieldCount", fieldCount, false);
         Number(json, "taunt", player.tauntCount, false);
         Bool(json, "targetable", player.isTargetable, false);
+
+        if (mine) Power(json, player);
+
+        json.Append('}');
+    }
+
+    private static void Power(StringBuilder json, Player player)
+    {
+        Key(json, "heroPower", false);
+
+        SpellCard power = HeroPower.Of(player);
+
+        if (power == null)
+        {
+            json.Append("null");
+            return;
+        }
+
+        json.Append('{');
+        Text(json, "effect", SpellText.Line(power), true);
+        Number(json, "cost", HeroPower.CostOf(player), false);
+        Bool(json, "used", HeroPower.Spent(player), false);
+        Bool(json, "ready", HeroPower.Ready(player), false);
+        Bool(json, "targeted", power.targeted, false);
+        Text(json, "affects", power.affects.ToString().ToLowerInvariant(), false);
+        Number(json, "healthChange", power.healthChange, false);
+        Number(json, "strengthChange", power.strengthChange, false);
+        Number(json, "cardDraw", power.cardDraw, false);
+        Bool(json, "destroys", power.destroys, false);
+        Number(json, "bolts", power.Bolts, false);
+        Text(json, "onlyTribe", power.onlyOneKind ? power.kind.ToString().ToLowerInvariant() : "", false);
         json.Append('}');
     }
 
@@ -73,54 +105,93 @@ public static class BotView
                 if (i > 0) json.Append(',');
 
                 CardInfo info = player.deck.hand[i];
-                CardDefinition data = Data(info);
 
                 json.Append('{');
                 Number(json, "index", i, true);
-
-                if (data == null)
-                {
-                    Text(json, "kind", "unknown", false);
-                    json.Append('}');
-                    continue;
-                }
-
-                Text(json, "cardId", info.cardID, false);
-                Text(json, "name", data.name, false);
-                Number(json, "cost", data.cost, false);
-
-                CreatureCard creature = data as CreatureCard;
-                if (creature != null)
-                {
-                    Text(json, "kind", "creature", false);
-                    Number(json, "strength", creature.strength, false);
-                    Number(json, "health", creature.health, false);
-                    Bool(json, "charge", creature.hasCharge, false);
-                    Bool(json, "taunt", creature.hasTaunt, false);
-                    Bool(json, "lifesteal", creature.hasLifesteal, false);
-                    Bool(json, "shield", creature.hasShield, false);
-                    Bool(json, "deathrattle", Deathrattle.On(creature), false);
-                    Number(json, "deathrattleDamage", Deathrattle.On(creature) ? creature.deathrattleDamage : 0, false);
-                }
-                else if (data is SpellCard sorcery)
-                {
-                    Text(json, "kind", "spell", false);
-                    Bool(json, "targeted", sorcery.targeted, false);
-                    Text(json, "affects", sorcery.affects.ToString().ToLowerInvariant(), false);
-                    Number(json, "healthChange", sorcery.healthChange, false);
-                    Number(json, "strengthChange", sorcery.strengthChange, false);
-                    Number(json, "cardDraw", sorcery.cardDraw, false);
-                }
-                else
-                {
-                    Text(json, "kind", "other", false);
-                }
-
+                Describe(json, info.cardID, Data(info), false);
                 json.Append('}');
             }
         }
 
         json.Append(']');
+    }
+
+    public static string BuildDeckRequest()
+    {
+        List<CardDefinition> pool = Decklist.Pool();
+
+        StringBuilder json = new StringBuilder(4096);
+
+        json.Append('{');
+        Number(json, "protocol", Protocol, true);
+        Text(json, "phase", "deck", false);
+        Number(json, "size", Decklist.Size, false);
+        Number(json, "maxCopies", Decklist.MaxCopies, false);
+
+        Key(json, "pool", false);
+        json.Append('[');
+
+        for (int i = 0; i < pool.Count; i++)
+        {
+            if (i > 0) json.Append(',');
+
+            json.Append('{');
+            Describe(json, pool[i].CardID, pool[i], true);
+            json.Append('}');
+        }
+
+        json.Append(']');
+        json.Append('}');
+
+        return json.ToString();
+    }
+
+    private static void Describe(StringBuilder json, string cardId, CardDefinition data, bool first)
+    {
+        if (data == null)
+        {
+            Text(json, "kind", "unknown", first);
+            return;
+        }
+
+        Text(json, "cardId", cardId, first);
+        Text(json, "name", data.name, false);
+        Number(json, "cost", data.cost, false);
+
+        CreatureCard creature = data as CreatureCard;
+        if (creature != null)
+        {
+            Text(json, "kind", "creature", false);
+            Number(json, "strength", creature.strength, false);
+            Number(json, "health", creature.health, false);
+            Bool(json, "charge", creature.hasCharge, false);
+            Bool(json, "taunt", creature.hasTaunt, false);
+            Bool(json, "lifesteal", creature.hasLifesteal, false);
+            Bool(json, "shield", creature.hasShield, false);
+            Bool(json, "deathrattle", Deathrattle.On(creature), false);
+            Number(json, "deathrattleDamage", Deathrattle.On(creature) ? creature.deathrattleDamage : 0, false);
+            Text(json, "tribe", Keyword.TypeOf(creature).ToLowerInvariant(), false);
+            Cry(json, Battlecry.Of(creature));
+            return;
+        }
+
+        SpellCard sorcery = data as SpellCard;
+        if (sorcery != null)
+        {
+            Text(json, "kind", "spell", false);
+            Text(json, "effect", SpellText.Line(sorcery), false);
+            Bool(json, "targeted", sorcery.targeted, false);
+            Text(json, "affects", sorcery.affects.ToString().ToLowerInvariant(), false);
+            Number(json, "healthChange", sorcery.healthChange, false);
+            Number(json, "strengthChange", sorcery.strengthChange, false);
+            Number(json, "cardDraw", sorcery.cardDraw, false);
+            Bool(json, "destroys", sorcery.destroys, false);
+            Number(json, "bolts", sorcery.Bolts, false);
+            Text(json, "onlyTribe", sorcery.onlyOneKind ? sorcery.kind.ToString().ToLowerInvariant() : "", false);
+            return;
+        }
+
+        Text(json, "kind", "other", false);
     }
 
     private static void Field(StringBuilder json, List<BoardCard> cards)
@@ -140,6 +211,7 @@ public static class BotView
             Text(json, "name", data == null ? "unknown" : data.name, false);
             Number(json, "strength", card.strength, false);
             Number(json, "health", card.health, false);
+            Number(json, "maxHealth", Printed(data), false);
             Number(json, "waitTurn", card.waitTurn, false);
             Bool(json, "attacked", card.hasAttackedThisTurn, false);
             Bool(json, "taunt", card.taunt, false);
@@ -147,11 +219,20 @@ public static class BotView
             Bool(json, "shield", card.shielded, false);
             Bool(json, "deathrattle", Deathrattle.DamageOf(card) > 0, false);
             Number(json, "deathrattleDamage", Deathrattle.DamageOf(card), false);
+            Text(json, "tribe", Tribe(data), false);
+            Cry(json, Battlecry.Of(card));
             Bool(json, "targetable", card.isTargetable, false);
             json.Append('}');
         }
 
         json.Append(']');
+    }
+
+    private static int Printed(CardDefinition data)
+    {
+        CreatureCard creature = data as CreatureCard;
+
+        return creature != null ? creature.health : 0;
     }
 
     private static CardDefinition Data(CardInfo info)
@@ -194,6 +275,33 @@ public static class BotView
     {
         if (!first) json.Append(',');
         json.Append('"').Append(name).Append("\":");
+    }
+
+    private static string Tribe(CardDefinition data)
+    {
+        return Keyword.TypeOf(data as CreatureCard).ToLowerInvariant();
+    }
+
+    private static void Cry(StringBuilder json, SpellCard cry)
+    {
+        Key(json, "battlecry", false);
+
+        if (cry == null)
+        {
+            json.Append("null");
+            return;
+        }
+
+        json.Append('{');
+        Text(json, "effect", SpellText.Line(cry), true);
+        Text(json, "affects", cry.affects.ToString().ToLowerInvariant(), false);
+        Number(json, "healthChange", cry.healthChange, false);
+        Number(json, "strengthChange", cry.strengthChange, false);
+        Number(json, "cardDraw", cry.cardDraw, false);
+        Bool(json, "destroys", cry.destroys, false);
+        Number(json, "bolts", cry.Bolts, false);
+        Text(json, "onlyTribe", cry.onlyOneKind ? cry.kind.ToString().ToLowerInvariant() : "", false);
+        json.Append('}');
     }
 
     private static void Number(StringBuilder json, string name, int value, bool first)
