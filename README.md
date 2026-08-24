@@ -109,14 +109,14 @@ screen. Nothing to install and no torrc to write.
 ### Builds
 - Builds are available for Windows, Linux, and macOS
 
-![Alt text](Assets/Sprites/StealthDragonsTor.png)
-Tor connection
+![Deck builder and connect screen](screens/StealthDeck.png)
+Building a 40 card deck
 
-![Alt text](Assets/Sprites/StealthDragonsMatch.png)
-![Alt text](Assets/Sprites/StealthDragonsVictory.png)
-PvP match with Stealth (XST) integration
+![Practice match against the bot](screens/StealthPractice.png)
+A match against the bot in practice mode
 
-https://www.youtube.com/watch?v=gPVLkC-fBXw
+![Replay playback](screens/StealthReplay.png)
+Watching a recorded match back
 
 ###### Experimental Software Notice
 StealthDragons and Dragonator are experimental software provided for testing and development purposes only.
