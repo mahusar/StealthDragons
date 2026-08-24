@@ -29,6 +29,19 @@ The cards are NFT node artworks. Each player builds their own deck from a shared
 - Every completed match produces a receipt that both players sign, with keys the server never holds, so a result cannot be invented or altered afterwards
 - A client that cannot verify the deal refuses to sign, so a signed receipt means both sides checked it and agreed
 - Publishing those receipts on the Stealth chain, so a match can also be proved to have happened by a certain time, is an optional server add-on
+
+### Practice mode
+- Play the AI bot with no Tor and no server, straight from the menu
+- The bot builds its own deck from the same pool and plays under the same rules, so practice is a real match
+
+### Match replays
+- A match is recorded as its seed and its moves rather than as snapshots, so a whole match is a short digest and a move list
+- Matches you played are kept on your machine and listed in the REPLAY panel. Pick one from the list, or paste its 64-character digest, and watch it back move by move
+- Playback rebuilds both decks from the record, and refuses to play anything that does not match the digest asked for
+
+### Server add-ons
+- A stock Dragonator hosts matches and does nothing else. Anything beyond that is an optional add-on the operator drops into an Addons folder, and the connect screen lists what a server has loaded before you join
+- Add-ons are developed separately in https://github.com/mahusar/dragonator-addons, which also carries the protocol a third-party bot dials in over
  
  ### Setup Client
 ##### Windows
